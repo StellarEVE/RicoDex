@@ -1,0 +1,9 @@
+[package]
+name = "music video-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "RicoDex music video-cli front end"
+
+[dependencies]
+music video-core = { path = "../music video-core" }

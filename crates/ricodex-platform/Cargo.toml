@@ -1,0 +1,13 @@
+[package]
+name = "music video-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "RicoDex music video-platform crate"
+
+[dependencies]
+music video-core = { path = "../music video-core" }
+# The FFmpeg binding proved by the binding spike: rsmpeg 0.18.0 against
+# FFmpeg 8.1.2. Building it on this machine needs the dev overlay
+# environment documented in crates/music video-media/README.md.
+rsmpeg = { version = "0.18.0", features = ["link_system_ffmpeg"] }

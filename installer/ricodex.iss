@@ -3,7 +3,7 @@
   #define AppVersion "0.1.0-alpha.9"
 #endif
 #define AppPublisher "StellarEVE"
-#define AppExeName "pmv-app.exe"
+#define AppExeName "music video-app.exe"
 
 [Setup]
 AppId={{4A37DF7A-9A21-4BE3-A8D8-703B1D5D27C1}

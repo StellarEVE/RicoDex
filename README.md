@@ -12,7 +12,7 @@ RicoDex analyses a selected song and source videos, generates a beat-synchronise
 
 ## Current state
 
-This repository starts from the existing Rust foundation in StellarEVE/PMV-Genie, continued under the RicoDex name. It is not yet a completed release. The alpha.9 notes describe the Edit page as selection/inspection-focused, app export as a sequential hard-cut subset, and real Windows hardware validation and FFmpeg redistribution licensing as outstanding.
+This repository starts from the existing Rust foundation in StellarEVE/RicoDex, continued under the RicoDex name. It is not yet a completed release. The alpha.9 notes describe the Edit page as selection/inspection-focused, app export as a sequential hard-cut subset, and real Windows hardware validation and FFmpeg redistribution licensing as outstanding.
 
 Do not treat a documented target feature as implemented until code and tests verify it. Read docs/ROADMAP.md and docs/PLAN.md.
 
@@ -20,16 +20,16 @@ Do not treat a documented target feature as implemented until code and tests ver
 
 | Crate | Responsibility |
 |---|---|
-| pmv-core | Timeline model, exact tick time, commands, invariants, history and persistence |
-| pmv-audio | Song decoding and musical structure analysis |
-| pmv-media | Fingerprinting, staged footage analysis and analysis cache |
-| pmv-platform | Codec and operating-system media access, decoder/encoder capability trials |
-| pmv-render | CPU reference compositor, GPU compositor, effects, transitions and render cache |
-| pmv-engine | Generation planner and cancellable analysis/render orchestration |
-| pmv-app | Native desktop interface |
-| pmv-cli | Command-line front end over the shared engine |
+| music video-core | Timeline model, exact tick time, commands, invariants, history and persistence |
+| music video-audio | Song decoding and musical structure analysis |
+| music video-media | Fingerprinting, staged footage analysis and analysis cache |
+| music video-platform | Codec and operating-system media access, decoder/encoder capability trials |
+| music video-render | CPU reference compositor, GPU compositor, effects, transitions and render cache |
+| music video-engine | Generation planner and cancellable analysis/render orchestration |
+| music video-app | Native desktop interface |
+| music video-cli | Command-line front end over the shared engine |
 
-The internal pmv-* crate and executable identifiers are retained from the imported foundation for compatibility. The product identity is RicoDex.
+The internal music video-* crate and executable identifiers are retained from the imported foundation for compatibility. The product identity is RicoDex.
 
 ## Build
 
@@ -38,7 +38,7 @@ A stable Rust toolchain and FFmpeg development files required by rsmpeg are need
     cargo test --workspace
     cargo build --release --workspace
 
-The foundation binaries are currently named pmv-app.exe and pmv-cli.exe.
+The foundation binaries are currently named music video-app.exe and music video-cli.exe.
 
 ## CI and distribution
 

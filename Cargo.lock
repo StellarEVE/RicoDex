@@ -2953,16 +2953,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "pmv-app"
+name = "music video-app"
 version = "0.1.0-alpha.9"
 dependencies = [
  "eframe",
  "egui",
- "pmv-audio",
- "pmv-core",
- "pmv-engine",
- "pmv-media",
- "pmv-render",
+ "music video-audio",
+ "music video-core",
+ "music video-engine",
+ "music video-media",
+ "music video-render",
  "png",
  "pollster 1.0.1",
  "rfd",
@@ -2970,24 +2970,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "pmv-audio"
+name = "music video-audio"
 version = "0.1.0-alpha.9"
 dependencies = [
  "num-complex",
- "pmv-core",
+ "music video-core",
  "realfft",
  "symphonia",
 ]
 
 [[package]]
-name = "pmv-cli"
+name = "music video-cli"
 version = "0.1.0-alpha.9"
 dependencies = [
- "pmv-core",
+ "music video-core",
 ]
 
 [[package]]
-name = "pmv-core"
+name = "music video-core"
 version = "0.1.0-alpha.9"
 dependencies = [
  "serde",
@@ -2995,39 +2995,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "pmv-engine"
+name = "music video-engine"
 version = "0.1.0-alpha.9"
 dependencies = [
- "pmv-audio",
- "pmv-core",
- "pmv-media",
+ "music video-audio",
+ "music video-core",
+ "music video-media",
 ]
 
 [[package]]
-name = "pmv-media"
+name = "music video-media"
 version = "0.1.0-alpha.9"
 dependencies = [
- "pmv-core",
- "pmv-platform",
+ "music video-core",
+ "music video-platform",
  "png",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "pmv-platform"
+name = "music video-platform"
 version = "0.1.0-alpha.9"
 dependencies = [
- "pmv-core",
+ "music video-core",
  "rsmpeg",
 ]
 
 [[package]]
-name = "pmv-render"
+name = "music video-render"
 version = "0.1.0-alpha.9"
 dependencies = [
- "pmv-core",
- "pmv-platform",
+ "music video-core",
+ "music video-platform",
  "pollster 0.3.0",
  "serde",
  "serde_json",

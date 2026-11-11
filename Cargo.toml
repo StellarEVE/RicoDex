@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/pmv-core",
-    "crates/pmv-audio",
-    "crates/pmv-media",
-    "crates/pmv-platform",
-    "crates/pmv-render",
-    "crates/pmv-engine",
-    "crates/pmv-app",
-    "crates/pmv-cli",
+    "crates/music video-core",
+    "crates/music video-audio",
+    "crates/music video-media",
+    "crates/music video-platform",
+    "crates/music video-render",
+    "crates/music video-engine",
+    "crates/music video-app",
+    "crates/music video-cli",
 ]
 
 [workspace.package]

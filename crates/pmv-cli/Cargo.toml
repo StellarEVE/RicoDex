@@ -1,9 +1,0 @@
-[package]
-name = "pmv-cli"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "RicoDex pmv-cli front end"
-
-[dependencies]
-pmv-core = { path = "../pmv-core" }

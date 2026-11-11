@@ -6,7 +6,7 @@ This roadmap distinguishes the existing foundation from the intended product. Up
 
 The imported alpha.9 workspace contains eight Rust crates, song structure analysis, staged footage analysis, a deterministic planner, project persistence, CPU and GPU composition paths, transition/effect foundations, a four-page desktop shell, a CLI and a Windows build workflow.
 
-The PMV-Genie alpha.9 release notes historically reported 67 workspace tests passing. This is not a fresh RicoDex test result. The first Windows CI run must establish the current baseline.
+The RicoDex alpha.9 release notes historically reported 67 workspace tests passing. This is not a fresh RicoDex test result. The first Windows CI run must establish the current baseline.
 
 ## Known incomplete or open work
 
