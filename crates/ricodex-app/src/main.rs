@@ -1,4 +1,4 @@
-//! music video-app: the desktop editor front end. A thin shell over the
+//! RicoDex desktop app: the desktop editor front end. A thin shell over the
 //! engine: every user action is expressed through the state and
 //! command layers, and nothing in the crates below this one knows
 //! the interface toolkit exists.
@@ -27,15 +27,15 @@
 //! whose drivers are far older and more forgiving.
 //!
 //! Environment hooks, used by automated runs:
-//!   PMV9_IMPORT   comma separated file paths to import at start
-//!   PMV9_PAGE     initial page: media, cut, edit or export
-//!   PMV9_EXPORT   default export output path
-//!   PMV9_AUTOSTART when set, begin analysis once probing finishes
-//!   PMV9_CACHE    analysis cache home (default: the system temp
+//!   RICODEX_IMPORT   comma separated file paths to import at start
+//!   RICODEX_PAGE     initial page: media, cut, edit or export
+//!   RICODEX_EXPORT   default export output path
+//!   RICODEX_AUTOSTART when set, begin analysis once probing finishes
+//!   RICODEX_CACHE    analysis cache home (default: the system temp
 //!                 directory under ricodex-cache)
-//!   PMV9_SHOT     when set, capture the window to this PNG path a
+//!   RICODEX_SHOT     when set, capture the window to this PNG path a
 //!                 few seconds after start, then close
-//!   PMV9_RENDERER wgpu or glow: force a renderer, skipping the
+//!   RICODEX_RENDERER wgpu or glow: force a renderer, skipping the
 //!                 probe based choice
 
 // A Windows GUI binary must not open a console window beside it.
@@ -48,7 +48,7 @@ mod state;
 mod ui;
 
 /// Path of the startup log: beside the running executable, so it
-/// is always findable next to music video-app itself.
+/// is always findable next to RicoDex desktop app itself.
 fn log_path() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
@@ -103,17 +103,17 @@ fn probe_wgpu() -> Option<String> {
     }
 }
 
-/// Choose the renderer for this run: an explicit PMV9_RENDERER
+/// Choose the renderer for this run: an explicit RICODEX_RENDERER
 /// wins, otherwise wgpu when the probe found an adapter, glow
 /// when it did not.
 fn choose_renderer() -> (eframe::Renderer, &'static str) {
-    match std::env::var("PMV9_RENDERER") {
+    match std::env::var("RICODEX_RENDERER") {
         Ok(v) if v.eq_ignore_ascii_case("glow") => {
-            log_line("renderer forced by PMV9_RENDERER: glow");
+            log_line("renderer forced by RICODEX_RENDERER: glow");
             return (eframe::Renderer::Glow, "glow");
         }
         Ok(v) if v.eq_ignore_ascii_case("wgpu") => {
-            log_line("renderer forced by PMV9_RENDERER: wgpu");
+            log_line("renderer forced by RICODEX_RENDERER: wgpu");
             return (eframe::Renderer::Wgpu, "wgpu");
         }
         _ => {}

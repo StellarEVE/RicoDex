@@ -1,5 +1,5 @@
 [package]
-name = "music video-core"
+name = "ricodex-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

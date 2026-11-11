@@ -9,7 +9,7 @@ use ricodex_platform::{capability_report, probe, trial_decode};
 
 fn fixture_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "music video-platform-test-{}-{:?}",
+        "ricodex-platform-test-{}-{:?}",
         std::process::id(),
         std::thread::current().id()
     ));

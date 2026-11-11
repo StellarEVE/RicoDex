@@ -1,4 +1,4 @@
-//! music video-render: export rendering. Turns a validated timeline into
+//! ricodex-render: export rendering. Turns a validated timeline into
 //! finished video files through the owned compositor and the rented
 //! encoders, with a render queue and honest progress.
 //!
@@ -14,7 +14,7 @@
 //! 4. CPU effects ([`EffectOp`], [`apply_effects`]): brightness,
 //!    contrast, saturation, blur, sharpen, as data driven ops.
 //! 5. The render job ([`render_project`]): a two clip project with
-//!    one transition, decoded and encoded through music video-platform,
+//!    one transition, decoded and encoded through ricodex-platform,
 //!    video only in this slice.
 //! 6. The content addressed render cache ([`RenderCache`]) for
 //!    transition regions, keyed by everything that determines the
@@ -24,7 +24,7 @@
 //!    with hard cuts. This is the export the app drives; the two
 //!    clip transition job stays the narrow, cache backed path.
 //!
-//! All FFmpeg access stays in music video-platform; this crate consumes its
+//! All FFmpeg access stays in ricodex-platform; this crate consumes its
 //! plain data frames and its encoder, and never names an FFmpeg
 //! type.
 

@@ -1,12 +1,12 @@
 [package]
-name = "music video-audio"
+name = "ricodex-audio"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex music video-audio crate"
+description = "RicoDex ricodex-audio crate"
 
 [dependencies]
-music video-core = { path = "../music video-core" }
+ricodex-core = { path = "../ricodex-core" }
 symphonia = { version = "0.5", features = ["all"] }
 realfft = "3"
 num-complex = "0.4"

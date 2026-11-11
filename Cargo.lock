@@ -2953,16 +2953,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "music video-app"
+name = "ricodex-app"
 version = "0.1.0-alpha.9"
 dependencies = [
  "eframe",
  "egui",
- "music video-audio",
- "music video-core",
- "music video-engine",
- "music video-media",
- "music video-render",
+ "ricodex-audio",
+ "ricodex-core",
+ "ricodex-engine",
+ "ricodex-media",
+ "ricodex-render",
  "png",
  "pollster 1.0.1",
  "rfd",
@@ -2970,24 +2970,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "music video-audio"
+name = "ricodex-audio"
 version = "0.1.0-alpha.9"
 dependencies = [
  "num-complex",
- "music video-core",
+ "ricodex-core",
  "realfft",
  "symphonia",
 ]
 
 [[package]]
-name = "music video-cli"
+name = "ricodex-cli"
 version = "0.1.0-alpha.9"
 dependencies = [
- "music video-core",
+ "ricodex-core",
 ]
 
 [[package]]
-name = "music video-core"
+name = "ricodex-core"
 version = "0.1.0-alpha.9"
 dependencies = [
  "serde",
@@ -2995,39 +2995,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "music video-engine"
+name = "ricodex-engine"
 version = "0.1.0-alpha.9"
 dependencies = [
- "music video-audio",
- "music video-core",
- "music video-media",
+ "ricodex-audio",
+ "ricodex-core",
+ "ricodex-media",
 ]
 
 [[package]]
-name = "music video-media"
+name = "ricodex-media"
 version = "0.1.0-alpha.9"
 dependencies = [
- "music video-core",
- "music video-platform",
+ "ricodex-core",
+ "ricodex-platform",
  "png",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "music video-platform"
+name = "ricodex-platform"
 version = "0.1.0-alpha.9"
 dependencies = [
- "music video-core",
+ "ricodex-core",
  "rsmpeg",
 ]
 
 [[package]]
-name = "music video-render"
+name = "ricodex-render"
 version = "0.1.0-alpha.9"
 dependencies = [
- "music video-core",
- "music video-platform",
+ "ricodex-core",
+ "ricodex-platform",
  "pollster 0.3.0",
  "serde",
  "serde_json",

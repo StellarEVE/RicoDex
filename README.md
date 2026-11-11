@@ -20,16 +20,16 @@ Do not treat a documented target feature as implemented until code and tests ver
 
 | Crate | Responsibility |
 |---|---|
-| music video-core | Timeline model, exact tick time, commands, invariants, history and persistence |
-| music video-audio | Song decoding and musical structure analysis |
-| music video-media | Fingerprinting, staged footage analysis and analysis cache |
-| music video-platform | Codec and operating-system media access, decoder/encoder capability trials |
-| music video-render | CPU reference compositor, GPU compositor, effects, transitions and render cache |
-| music video-engine | Generation planner and cancellable analysis/render orchestration |
-| music video-app | Native desktop interface |
-| music video-cli | Command-line front end over the shared engine |
+| ricodex-core | Timeline model, exact tick time, commands, invariants, history and persistence |
+| ricodex-audio | Song decoding and musical structure analysis |
+| ricodex-media | Fingerprinting, staged footage analysis and analysis cache |
+| ricodex-platform | Codec and operating-system media access, decoder/encoder capability trials |
+| ricodex-render | CPU reference compositor, GPU compositor, effects, transitions and render cache |
+| ricodex-engine | Generation planner and cancellable analysis/render orchestration |
+| ricodex-app | Native desktop interface |
+| ricodex-cli | Command-line front end over the shared engine |
 
-The internal music video-* crate and executable identifiers are retained from the imported foundation for compatibility. The product identity is RicoDex.
+The internal ricodex-* crate and executable identifiers are retained from the imported foundation for compatibility. The product identity is RicoDex.
 
 ## Build
 
@@ -38,7 +38,7 @@ A stable Rust toolchain and FFmpeg development files required by rsmpeg are need
     cargo test --workspace
     cargo build --release --workspace
 
-The foundation binaries are currently named music video-app.exe and music video-cli.exe.
+The foundation binaries are currently named ricodex-app.exe and ricodex-cli.exe.
 
 ## CI and distribution
 

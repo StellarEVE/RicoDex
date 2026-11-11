@@ -43,7 +43,7 @@ impl Frame {
         }
     }
 
-    /// Build from a tightly packed RGB24 buffer (the music video-platform
+    /// Build from a tightly packed RGB24 buffer (the ricodex-platform
     /// decode shape), adding a fully opaque alpha channel.
     pub fn from_rgb24(width: u32, height: u32, rgb: &[u8]) -> Result<Frame, RenderError> {
         let expected = width as usize * height as usize * 3;

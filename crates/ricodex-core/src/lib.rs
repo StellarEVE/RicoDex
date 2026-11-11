@@ -1,4 +1,4 @@
-//! music video-core: the timeline model and edit commands for the RicoDex
+//! ricodex-core: the timeline model and edit commands for the RicoDex
 //! (working title) editor.
 //!
 //! This crate is the bottom of the workspace. It knows nothing about

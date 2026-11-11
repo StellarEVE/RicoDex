@@ -1,16 +1,16 @@
 [package]
-name = "music video-app"
+name = "ricodex-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex music video-app front end"
+description = "RicoDex ricodex-app front end"
 
 [dependencies]
-music video-core = { path = "../music video-core" }
-music video-audio = { path = "../music video-audio" }
-music video-media = { path = "../music video-media" }
-music video-engine = { path = "../music video-engine" }
-music video-render = { path = "../music video-render" }
+ricodex-core = { path = "../ricodex-core" }
+ricodex-audio = { path = "../ricodex-audio" }
+ricodex-media = { path = "../ricodex-media" }
+ricodex-engine = { path = "../ricodex-engine" }
+ricodex-render = { path = "../ricodex-render" }
 # The interface toolkit lives only in this crate, so the front end
 # stays replaceable (see tools/check_layers.sh). egui 0.37 is the
 # current release the crates index offers; eframe is its runner.
@@ -25,8 +25,8 @@ egui = "0.37"
 wgpu = "30"
 pollster = "1"
 # Native file dialogs for import and export paths. Paths can also
-# arrive through the PMV9_IMPORT and PMV9_EXPORT environment
+# arrive through the RICODEX9_IMPORT and RICODEX9_EXPORT environment
 # variables, which is how the automated runs drive the app.
 rfd = "0.18"
-# Writing the PMV9_SHOT screenshot captures.
+# Writing the RICODEX9_SHOT screenshot captures.
 png = "0.18"

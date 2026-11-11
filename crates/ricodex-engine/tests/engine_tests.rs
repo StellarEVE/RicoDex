@@ -1,4 +1,4 @@
-//! Integration tests for music video-engine: planner determinism, the named
+//! Integration tests for ricodex-engine: planner determinism, the named
 //! generation controls changing outcomes in the expected direction, the
 //! provisional refine contract of the staged pipeline, and multi song
 //! stitching.

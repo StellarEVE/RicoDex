@@ -1,15 +1,15 @@
-# music video-media
+# ricodex-media
 
 Footage analysis for RicoDex: content fingerprints, stage 0 container
 probing, the stage 1 sparse sampling pass (poster, filmstrip, coarse
 scenes, black ranges, rough motion), the stage 2 full decode (exact
 scenes, black ranges, motion scores, best moments, progress callbacks),
 and the fingerprint keyed analysis cache. All codec work lives in
-music video-platform; this crate only consumes its plain data frames.
+ricodex-platform; this crate only consumes its plain data frames.
 
 ## Building against rsmpeg and FFmpeg
 
-music video-platform links FFmpeg as a library through the rsmpeg crate with
+ricodex-platform links FFmpeg as a library through the rsmpeg crate with
 its `link_system_ffmpeg` feature, so building this crate needs a
 FFmpeg development setup on the machine: headers, pkg-config files and
 libclang for bindgen. A runtime only install is not enough. The

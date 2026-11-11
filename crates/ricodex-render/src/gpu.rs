@@ -139,7 +139,7 @@ impl GpuCompositor {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    label: Some("music video-render device"),
+                    label: Some("ricodex-render device"),
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::default(),
                 },
@@ -149,12 +149,12 @@ impl GpuCompositor {
             .ok()?;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("music video-render transitions"),
+            label: Some("ricodex-render transitions"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
         let bind_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("music video-render bind layout"),
+                label: Some("ricodex-render bind layout"),
                 entries: &[
                     texture_entry(0),
                     texture_entry(1),
@@ -180,12 +180,12 @@ impl GpuCompositor {
             });
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("music video-render pipeline layout"),
+                label: Some("ricodex-render pipeline layout"),
                 bind_group_layouts: &[&bind_layout],
                 push_constant_ranges: &[],
             });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("music video-render transition pipeline"),
+            label: Some("ricodex-render transition pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -209,7 +209,7 @@ impl GpuCompositor {
             multiview: None,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("music video-render linear"),
+            label: Some("ricodex-render linear"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -289,8 +289,8 @@ impl GpuCompositor {
             );
             tex
         };
-        let tex_a = upload(&a.pixels, "music video-render frame a");
-        let tex_b = upload(&b.pixels, "music video-render frame b");
+        let tex_a = upload(&a.pixels, "ricodex-render frame a");
+        let tex_b = upload(&b.pixels, "ricodex-render frame b");
         let view_a = tex_a.create_view(&Default::default());
         let view_b = tex_b.create_view(&Default::default());
 
@@ -305,7 +305,7 @@ impl GpuCompositor {
             .copy_from_slice(&(params.dip_color[2] as f32 / 255.0).to_le_bytes());
         uniform_bytes[28..32].copy_from_slice(&1.0f32.to_le_bytes());
         let uniform_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("music video-render uniforms"),
+            label: Some("ricodex-render uniforms"),
             size: uniform_bytes.len() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -313,7 +313,7 @@ impl GpuCompositor {
         self.queue.write_buffer(&uniform_buf, 0, &uniform_bytes);
 
         let out_tex = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("music video-render output"),
+            label: Some("ricodex-render output"),
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -325,13 +325,13 @@ impl GpuCompositor {
         });
         let out_view = out_tex.create_view(&Default::default());
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("music video-render readback"),
+            label: Some("ricodex-render readback"),
             size: (padded_row * height as usize) as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("music video-render bind group"),
+            label: Some("ricodex-render bind group"),
             layout: &self.bind_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -356,11 +356,11 @@ impl GpuCompositor {
         let mut encoder =
             self.device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("music video-render frame encoder"),
+                    label: Some("ricodex-render frame encoder"),
                 });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("music video-render transition pass"),
+                label: Some("ricodex-render transition pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &out_view,
                     resolve_target: None,

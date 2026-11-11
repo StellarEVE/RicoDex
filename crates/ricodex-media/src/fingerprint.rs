@@ -1,5 +1,5 @@
 //! Content fingerprints: identify a media file by what it is, not by
-//! where it lives. The fingerprint is the music video-core [`Fingerprint`]
+//! where it lives. The fingerprint is the ricodex-core [`Fingerprint`]
 //! struct: file size plus a hash of the bytes sampled at the head,
 //! middle and tail of the file. Equal files fingerprint equal by
 //! construction, and the hash is a stable, documented, dependency free

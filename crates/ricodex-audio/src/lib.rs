@@ -1,4 +1,4 @@
-//! music video-audio: song analysis. Decodes songs and detects beats, bars, phrases
+//! RicoDex audio analysis crate: song analysis. Decodes songs and detects beats, bars, phrases
 //! and change points, exposing them to the engine as plain data.
 //!
 //! Decoding is pure Rust through Symphonia, in process, at the file native
@@ -16,7 +16,7 @@
 //! sit on exact sample positions, and sample positions convert to ticks
 //! exactly whenever the sample rate divides the tick rate, which the
 //! standard 44,100 and 48,000 rates (and their halves) all do. This crate
-//! depends on music video-core for time only; bridging analysis into the project
+//! depends on RicoDex core crate for time only; bridging analysis into the project
 //! model is the engine crate's job.
 
 use std::fmt;
@@ -589,7 +589,7 @@ pub fn loudness_envelope(samples: &[f32], sample_rate: u32, window_secs: f64) ->
         .collect()
 }
 
-/// Find change points in the loudness envelope, the AutoPMVs style
+/// Find change points in the loudness envelope, the automated music-video montage style
 /// method: one second windows, and a point fires at window `i` when the
 /// mean of the next two windows differs from the mean of the previous
 /// two windows by more than `threshold_db`. Points are kept at least two

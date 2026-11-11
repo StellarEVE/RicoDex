@@ -1,11 +1,11 @@
 [package]
-name = "music video-engine"
+name = "ricodex-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex music video-engine crate"
+description = "RicoDex ricodex-engine crate"
 
 [dependencies]
-music video-core = { path = "../music video-core" }
-music video-audio = { path = "../music video-audio" }
-music video-media = { path = "../music video-media" }
+ricodex-core = { path = "../ricodex-core" }
+ricodex-audio = { path = "../ricodex-audio" }
+ricodex-media = { path = "../ricodex-media" }

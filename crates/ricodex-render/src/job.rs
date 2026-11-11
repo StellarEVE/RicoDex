@@ -13,9 +13,9 @@
 //! (more tracks, more items, per clip effects) are later slices
 //! building on this path, not changes to it.
 //!
-//! Frames are decoded through music video-platform, composited through
+//! Frames are decoded through ricodex-platform, composited through
 //! the GPU compositor where it implements the transition and the
-//! CPU oracle otherwise, and encoded through music video-platform's
+//! CPU oracle otherwise, and encoded through ricodex-platform's
 //! VideoEncoder. The transition region goes through the content
 //! addressed render cache when one is supplied.
 

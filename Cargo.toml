@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/music video-core",
-    "crates/music video-audio",
-    "crates/music video-media",
-    "crates/music video-platform",
-    "crates/music video-render",
-    "crates/music video-engine",
-    "crates/music video-app",
-    "crates/music video-cli",
+    "crates/ricodex-core",
+    "crates/ricodex-audio",
+    "crates/ricodex-media",
+    "crates/ricodex-platform",
+    "crates/ricodex-render",
+    "crates/ricodex-engine",
+    "crates/ricodex-app",
+    "crates/ricodex-cli",
 ]
 
 [workspace.package]

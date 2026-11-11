@@ -8,7 +8,7 @@ use std::process::Command;
 /// A fresh temporary directory for one test.
 pub fn test_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "music video-media-test-{}-{}-{:?}",
+        "ricodex-media-test-{}-{}-{:?}",
         name,
         std::process::id(),
         std::thread::current().id()

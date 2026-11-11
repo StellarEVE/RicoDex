@@ -28,7 +28,7 @@ use ricodex_render::{
 
 fn test_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "music video-render-test-{}-{}-{:?}",
+        "ricodex-render-test-{}-{}-{:?}",
         name,
         std::process::id(),
         std::thread::current().id()

@@ -1,15 +1,15 @@
 [package]
-name = "music video-render"
+name = "ricodex-render"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex music video-render crate"
+description = "RicoDex ricodex-render crate"
 
 [dependencies]
-music video-core = { path = "../music video-core" }
-# All FFmpeg access stays in music video-platform (decode, probe, and the new
+ricodex-core = { path = "../ricodex-core" }
+# All FFmpeg access stays in ricodex-platform (decode, probe, and the new
 # VideoEncoder); this crate consumes its plain data frames only.
-music video-platform = { path = "../music video-platform" }
+ricodex-platform = { path = "../ricodex-platform" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # The owned compositor: wgpu 0.20, the version the compositor spike

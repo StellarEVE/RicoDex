@@ -1,4 +1,4 @@
-//! Integration tests for music video-audio: real decode through Symphonia, the
+//! Integration tests for ricodex-audio: real decode through Symphonia, the
 //! proven tempo test target (a true 120 BPM fixture reading within about
 //! 1 BPM), musical structure counts, and loudness change points.
 

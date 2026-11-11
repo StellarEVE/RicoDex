@@ -26,7 +26,7 @@ use crate::state::{
 
 /// Stage 0 for one imported file: the content fingerprint, plus the
 /// container probe for video, or a duration from decoding for audio
-/// (music video-audio has no header only probe, so the duration of a song is
+/// (ricodex-audio has no header only probe, so the duration of a song is
 /// read by decoding it once here; the song analysis decodes it again
 /// later, which is accepted for this slice).
 pub fn run_probe(index: usize, path: PathBuf, kind: MediaKind, tx: Sender<ProbeResult>) {
@@ -203,7 +203,7 @@ pub fn run_pipeline(
 }
 
 /// One export job: the sequential hard cut render of the current
-/// timeline through music video-render, reporting progress per frame and
+/// timeline through ricodex-render, reporting progress per frame and
 /// the resolved encoder name at the end. A cancel requested mid
 /// render cannot stop the encoder, so it is honoured by the state
 /// when the finish message lands: the state marks the job

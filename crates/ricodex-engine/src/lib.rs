@@ -1,14 +1,14 @@
-//! music video-engine: generation and planning. The montage planner that builds a
+//! ricodex-engine: generation and planning. The montage planner that builds a
 //! first cut from song structure and analysed footage, including the
 //! provisional mode used while staged analysis is still refining.
 //!
 //! The planner is a pure function of its inputs plus an internal seed:
 //! same grid, same sources, same settings, same seed, same plan. It takes
-//! a beat grid (bridged from music video-audio by [`BeatGrid::from_analysis`]), a
+//! a beat grid (bridged from ricodex-audio by [`BeatGrid::from_analysis`]), a
 //! pool of analysed sources as plain data, and the generation settings
-//! from music video-core, extended locally with the placement controls that are
+//! from ricodex-core, extended locally with the placement controls that are
 //! the planner's own business. Its output is a [`Plan`]: the chosen clips
-//! as data, each marked provisional or settled, plus the music video-core
+//! as data, each marked provisional or settled, plus the ricodex-core
 //! commands that build exactly those clips on a track.
 //!
 //! Provisional mode is the staged pipeline contract. While analysis is
@@ -38,7 +38,7 @@ pub struct BeatGrid {
 }
 
 impl BeatGrid {
-    /// Bridge a music video-audio analysis into a planner grid.
+    /// Bridge a ricodex-audio analysis into a planner grid.
     pub fn from_analysis(analysis: &SongAnalysis) -> BeatGrid {
         BeatGrid {
             bpm: analysis.bpm,
@@ -164,7 +164,7 @@ pub enum PlacementMode {
     EvenSpaced,
 }
 
-/// Planner controls: the music video-core generation settings plus the
+/// Planner controls: the ricodex-core generation settings plus the
 /// placement controls that belong to the planner itself.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlannerSettings {
@@ -200,7 +200,7 @@ pub enum ClipState {
     Settled,
 }
 
-/// One chosen clip, as data. Mirrors the music video-core [`Item`] it becomes,
+/// One chosen clip, as data. Mirrors the ricodex-core [`Item`] it becomes,
 /// plus its provisional state, which lives only in the plan.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlannedClip {
@@ -212,7 +212,7 @@ pub struct PlannedClip {
     pub state: ClipState,
 }
 
-/// A planner output: the clips, and the music video-core commands that build
+/// A planner output: the clips, and the ricodex-core commands that build
 /// exactly those clips, in order, on `track_id`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Plan {

@@ -12,7 +12,7 @@
 //! ranges, a motion score per scene and best moment flags. Its
 //! output is settled.
 //!
-//! The data types mirror music video-engine's `SceneInfo`, `BlackRange` and
+//! The data types mirror ricodex-engine's `SceneInfo`, `BlackRange` and
 //! `SourceInfo` field for field, with the same partial test, so the
 //! engine converts with a plain field copy.
 
@@ -39,7 +39,7 @@ pub const FILMSTRIP_MAX_TILES: usize = 240;
 
 // ------------------------------------------------------------------ data
 
-/// One analysed scene. Field for field the shape music video-engine consumes
+/// One analysed scene. Field for field the shape ricodex-engine consumes
 /// as `SceneInfo`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MediaScene {
@@ -61,7 +61,7 @@ impl MediaScene {
 }
 
 /// A range of a source that is black. Field for field the shape
-/// music video-engine consumes as `BlackRange`.
+/// ricodex-engine consumes as `BlackRange`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MediaBlackRange {
     pub start: Tick,
@@ -86,7 +86,7 @@ pub struct SourceAnalysis {
 }
 
 impl SourceAnalysis {
-    /// The same partial test music video-engine's `SourceInfo::is_partial`
+    /// The same partial test ricodex-engine's `SourceInfo::is_partial`
     /// runs: no scenes yet, any scene still coarse, or motion not yet
     /// measured. Partial analysis makes provisional clips.
     pub fn is_partial(&self) -> bool {

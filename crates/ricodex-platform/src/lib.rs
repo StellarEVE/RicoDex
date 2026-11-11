@@ -1,4 +1,4 @@
-//! music video-platform: the sole home of hardware and operating system media
+//! ricodex-platform: the sole home of hardware and operating system media
 //! access. Hardware decode and encode selection, capability probing by
 //! real trial decode and encode, and platform media frameworks live here
 //! and nowhere else.
@@ -12,7 +12,7 @@
 //!
 //! Building this crate on a machine whose FFmpeg is a runtime only
 //! install needs the dev overlay environment documented in
-//! crates/music video-media/README.md.
+//! crates/ricodex-media/README.md.
 
 pub mod capability;
 pub mod decode;

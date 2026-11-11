@@ -106,22 +106,22 @@ impl EditorApp {
     pub fn from_env() -> EditorApp {
         let (probe_tx, probe_rx) = std::sync::mpsc::channel();
         let mut state = AppState::new();
-        if let Ok(page) = std::env::var("PMV9_PAGE") {
+        if let Ok(page) = std::env::var("RICODEX_PAGE") {
             if let Some(page) = Page::from_env(&page) {
                 state.page = page;
             }
         }
-        if let Ok(path) = std::env::var("PMV9_EXPORT") {
+        if let Ok(path) = std::env::var("RICODEX_EXPORT") {
             if !path.trim().is_empty() {
                 state.export_path = Some(PathBuf::from(path));
             }
         }
-        let cache_home = std::env::var("PMV9_CACHE")
+        let cache_home = std::env::var("RICODEX_CACHE")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 std::env::temp_dir().join("ricodex-cache")
             });
-        let shot_path = std::env::var("PMV9_SHOT").ok().map(PathBuf::from);
+        let shot_path = std::env::var("RICODEX_SHOT").ok().map(PathBuf::from);
         let mut app = EditorApp {
             state,
             probe_tx,
@@ -129,13 +129,13 @@ impl EditorApp {
             pipeline_rx: None,
             export_rx: None,
             cache_home,
-            autostart_pending: std::env::var("PMV9_AUTOSTART").is_ok(),
+            autostart_pending: std::env::var("RICODEX_AUTOSTART").is_ok(),
             started: Instant::now(),
             shot_path,
             shot_requested: false,
             shot_done: Arc::new(AtomicBool::new(false)),
         };
-        if let Ok(list) = std::env::var("PMV9_IMPORT") {
+        if let Ok(list) = std::env::var("RICODEX_IMPORT") {
             for path in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
                 app.import_and_probe(PathBuf::from(path));
             }
@@ -201,7 +201,7 @@ impl eframe::App for EditorApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_channels();
 
-        // Automated run hook: with PMV9_AUTOSTART set, begin the
+        // Automated run hook: with RICODEX_AUTOSTART set, begin the
         // pipeline as soon as probing finishes, marking the first
         // audio file as the song. This is how the Cut page is
         // exercised end to end without a hand on the mouse.
@@ -308,7 +308,7 @@ impl EditorApp {
     /// The footer bar: page tabs live here and nowhere else, wide,
     /// with the status readings at the edges.
     fn footer(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::bottom("music video-footer")
+        egui::Panel::bottom("ricodex-footer")
             .frame(
                 egui::Frame::new()
                     .fill(SURFACE)

@@ -1,4 +1,4 @@
-//! music video-media: footage analysis. Probes media files, computes content
+//! ricodex-media: footage analysis. Probes media files, computes content
 //! fingerprints, and runs the staged analysis passes behind the media
 //! pipeline.
 //!
@@ -11,11 +11,11 @@
 //! fingerprint in one cache home, outside any project file, and are
 //! always disposable.
 //!
-//! The analysis data types here mirror music video-engine's `SceneInfo`,
+//! The analysis data types here mirror ricodex-engine's `SceneInfo`,
 //! `BlackRange` and `SourceInfo` field for field, with the same
 //! `is_partial` meaning, so the engine (which depends on this crate)
 //! converts with a plain field copy. All FFmpeg access lives in
-//! music video-platform; this crate never names an FFmpeg type.
+//! ricodex-platform; this crate never names an FFmpeg type.
 
 pub mod analysis;
 pub mod cache;

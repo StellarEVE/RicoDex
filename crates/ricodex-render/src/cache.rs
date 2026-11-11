@@ -1,5 +1,5 @@
 //! The content addressed render cache for transition regions.
-//! Same pattern as the music video-media analysis cache, per Decision 5:
+//! Same pattern as the ricodex-media analysis cache, per Decision 5:
 //! derived data in one known cache home, outside any project file,
 //! disposable at any time, rebuilt by rendering again.
 //!
