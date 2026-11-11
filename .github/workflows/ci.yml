@@ -1,0 +1,43 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc --version
+          cargo --version
+      - name: Download FFmpeg shared development build
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg-shared.zip
+          Expand-Archive ffmpeg-shared.zip -DestinationPath ffmpeg-shared
+          $root = Get-ChildItem ffmpeg-shared -Directory | Select-Object -First 1
+          if (-not (Test-Path "$($root.FullName)\include\libavutil\avutil.h")) { throw "FFmpeg headers were not found." }
+          if (-not (Test-Path "$($root.FullName)\lib\avutil.lib")) { throw "FFmpeg import libraries were not found." }
+          "FFMPEG_ROOT=$($root.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Configure FFmpeg and bindgen
+        shell: pwsh
+        run: |
+          "FFMPEG_DLL_PATH=$env:FFMPEG_ROOT\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "FFMPEG_INCLUDE_DIR=$env:FFMPEG_ROOT\include" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$env:FFMPEG_ROOT\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Run workspace tests
+        run: cargo test --workspace
+      - name: Build release binaries
+        run: cargo build --release --workspace

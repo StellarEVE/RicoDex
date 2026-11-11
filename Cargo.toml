@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/pmv-core",
+    "crates/pmv-audio",
+    "crates/pmv-media",
+    "crates/pmv-platform",
+    "crates/pmv-render",
+    "crates/pmv-engine",
+    "crates/pmv-app",
+    "crates/pmv-cli",
+]
+
+[workspace.package]
+version = "0.1.0-alpha.9"
+edition = "2021"
+license = "Apache-2.0"
+description = "RicoDex: a local beat-synced music video editor"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
