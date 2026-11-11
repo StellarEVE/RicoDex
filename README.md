@@ -12,7 +12,7 @@ RicoDex analyses a selected song and source videos, generates a beat-synchronise
 
 ## Current state
 
-This repository starts from the existing Rust foundation in StellarEVE/RicoDex, continued under the RicoDex name. It is not yet a completed release. The alpha.9 notes describe the Edit page as selection/inspection-focused, app export as a sequential hard-cut subset, and real Windows hardware validation and FFmpeg redistribution licensing as outstanding.
+RicoDex is a local-first Rust desktop video editor built on a modular workspace. It is under active development and is not yet a completed release. The alpha.9 notes describe the Edit page as selection/inspection-focused, app export as a sequential hard-cut subset, and real Windows hardware validation and FFmpeg redistribution licensing as outstanding.
 
 Do not treat a documented target feature as implemented until code and tests verify it. Read docs/ROADMAP.md and docs/PLAN.md.
 

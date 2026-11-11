@@ -3,7 +3,7 @@ name = "ricodex-audio"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex ricodex-audio crate"
+description = "RicoDex audio analysis crate"
 
 [dependencies]
 ricodex-core = { path = "../ricodex-core" }

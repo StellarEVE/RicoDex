@@ -3,7 +3,7 @@ name = "ricodex-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex ricodex-cli front end"
+description = "RicoDex command-line front end"
 
 [dependencies]
 ricodex-core = { path = "../ricodex-core" }

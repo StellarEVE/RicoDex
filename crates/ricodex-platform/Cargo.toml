@@ -3,7 +3,7 @@ name = "ricodex-platform"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex ricodex-platform crate"
+description = "RicoDex media codec and hardware platform layer"
 
 [dependencies]
 ricodex-core = { path = "../ricodex-core" }

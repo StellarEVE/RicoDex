@@ -3,7 +3,7 @@ name = "ricodex-media"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex ricodex-media crate"
+description = "RicoDex source footage analysis and cache"
 
 [dependencies]
 ricodex-core = { path = "../ricodex-core" }

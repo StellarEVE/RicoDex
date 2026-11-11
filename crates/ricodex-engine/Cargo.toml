@@ -3,7 +3,7 @@ name = "ricodex-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "RicoDex ricodex-engine crate"
+description = "RicoDex media analysis and cut planning engine"
 
 [dependencies]
 ricodex-core = { path = "../ricodex-core" }
