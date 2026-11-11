@@ -47,7 +47,7 @@ impl Page {
         }
     }
 
-    /// Parse the PMV9_PAGE environment value.
+    /// Parse the RICODEX_PAGE environment value.
     pub fn from_env(value: &str) -> Option<Page> {
         match value.trim().to_ascii_lowercase().as_str() {
             "media" => Some(Page::Media),
