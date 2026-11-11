@@ -119,7 +119,7 @@ impl EditorApp {
         let cache_home = std::env::var("PMV9_CACHE")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                std::env::temp_dir().join("pmv-genie-alpha9-cache")
+                std::env::temp_dir().join("ricodex-cache")
             });
         let shot_path = std::env::var("PMV9_SHOT").ok().map(PathBuf::from);
         let mut app = EditorApp {

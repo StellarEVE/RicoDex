@@ -10,7 +10,7 @@
 //! the state transitions those messages drive live in `state` and
 //! are unit tested there.
 //!
-//! Startup diagnostics: the app appends to `pmv-genie.log` beside
+//! Startup diagnostics: the app appends to `ricodex.log` beside
 //! the executable from its first moments, records what the machine
 //! offers, and records any error or panic that ends the run. A GUI
 //! binary has no console, so without this log a failed start is
@@ -32,7 +32,7 @@
 //!   PMV9_EXPORT   default export output path
 //!   PMV9_AUTOSTART when set, begin analysis once probing finishes
 //!   PMV9_CACHE    analysis cache home (default: the system temp
-//!                 directory under pmv-genie-alpha9-cache)
+//!                 directory under ricodex-cache)
 //!   PMV9_SHOT     when set, capture the window to this PNG path a
 //!                 few seconds after start, then close
 //!   PMV9_RENDERER wgpu or glow: force a renderer, skipping the
@@ -52,8 +52,8 @@ mod ui;
 fn log_path() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("pmv-genie.log")))
-        .unwrap_or_else(|| std::path::PathBuf::from("pmv-genie.log"))
+        .and_then(|p| p.parent().map(|d| d.join("ricodex.log")))
+        .unwrap_or_else(|| std::path::PathBuf::from("ricodex.log"))
 }
 
 /// Append one line to the startup log. Opens and closes the file
@@ -132,7 +132,7 @@ fn choose_renderer() -> (eframe::Renderer, &'static str) {
 
 fn main() -> eframe::Result<()> {
     log_line(&format!(
-        "PMV-Genie {} starting, exe: {}",
+        "RicoDex {} starting, exe: {}",
         env!("CARGO_PKG_VERSION"),
         std::env::current_exe()
             .map(|p| p.display().to_string())
@@ -152,12 +152,12 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([900.0, 560.0])
-            .with_title("PMV-Genie"),
+            .with_title("RicoDex"),
         renderer,
         ..Default::default()
     };
     let result = eframe::run_native(
-        "PMV-Genie",
+        "RicoDex",
         options,
         Box::new(|cc| {
             log_line("window created, building app state");

@@ -3,7 +3,7 @@ name = "pmv-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "PMV-Genie pmv-app front end"
+description = "RicoDex pmv-app front end"
 
 [dependencies]
 pmv-core = { path = "../pmv-core" }
