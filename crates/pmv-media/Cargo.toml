@@ -1,0 +1,13 @@
+[package]
+name = "pmv-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PMV-Genie pmv-media crate"
+
+[dependencies]
+pmv-core = { path = "../pmv-core" }
+pmv-platform = { path = "../pmv-platform" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+png = "0.18"

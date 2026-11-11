@@ -1,0 +1,12 @@
+[package]
+name = "pmv-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PMV-Genie pmv-audio crate"
+
+[dependencies]
+pmv-core = { path = "../pmv-core" }
+symphonia = { version = "0.5", features = ["all"] }
+realfft = "3"
+num-complex = "0.4"

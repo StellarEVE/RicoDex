@@ -1,0 +1,10 @@
+[package]
+name = "pmv-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PMV-Genie timeline model, edit commands and project persistence"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

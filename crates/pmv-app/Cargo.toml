@@ -1,0 +1,32 @@
+[package]
+name = "pmv-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PMV-Genie pmv-app front end"
+
+[dependencies]
+pmv-core = { path = "../pmv-core" }
+pmv-audio = { path = "../pmv-audio" }
+pmv-media = { path = "../pmv-media" }
+pmv-engine = { path = "../pmv-engine" }
+pmv-render = { path = "../pmv-render" }
+# The interface toolkit lives only in this crate, so the front end
+# stays replaceable (see tools/check_layers.sh). egui 0.37 is the
+# current release the crates index offers; eframe is its runner.
+# The glow (OpenGL) renderer is compiled in beside the default
+# wgpu renderer so the app can fall back to it on machines whose
+# Vulkan or DirectX 12 path is unhealthy (see main.rs).
+eframe = { version = "0.37", features = ["glow"] }
+egui = "0.37"
+# The startup probe uses the same wgpu generation the interface
+# itself runs on, so its verdict reflects the real stack (see
+# main.rs). pollster drives its one async call to completion.
+wgpu = "30"
+pollster = "1"
+# Native file dialogs for import and export paths. Paths can also
+# arrive through the PMV9_IMPORT and PMV9_EXPORT environment
+# variables, which is how the automated runs drive the app.
+rfd = "0.18"
+# Writing the PMV9_SHOT screenshot captures.
+png = "0.18"
