@@ -52,6 +52,9 @@ jobs:
           $encoders = (& $testFfmpeg -hide_banner -encoders 2>&1 | Out-String)
           if ($encoders -notmatch "libx264") { throw "Test-only FFmpeg build does not provide libx264." }
           "RICODEX_TEST_FFMPEG=$testFfmpeg" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Audit H.264 test fixture configuration
+        shell: pwsh
+        run: ./tools/check_test_ffmpeg.ps1
       - name: Run workspace tests
         shell: pwsh
         run: |
