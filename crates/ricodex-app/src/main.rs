@@ -32,8 +32,7 @@
 //!                 directory under ricodex-cache)
 //!   RICODEX_SHOT     when set, capture the window to this PNG path a
 //!                 few seconds after start, then close
-//!   RICODEX_RENDERER wgpu or glow: force a renderer, skipping the
-//!                 probe based choice
+//!   RICODEX_RENDERER wgpu or glow: select a renderer (default: glow)
 
 // A Windows GUI binary must not open a console window beside it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
