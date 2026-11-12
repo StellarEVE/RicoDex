@@ -1,6 +1,7 @@
 name: Windows CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -41,3 +42,12 @@ jobs:
         run: cargo test --workspace
       - name: Build release binaries
         run: cargo build --release --workspace
+      - name: Upload Windows executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: RicoDex-Windows-x64-${{ github.sha }}
+          path: |
+            target/release/ricodex-app.exe
+            target/release/ricodex-cli.exe
+          if-no-files-found: error
+          retention-days: 14
