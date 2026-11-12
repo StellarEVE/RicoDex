@@ -2964,9 +2964,7 @@ dependencies = [
  "ricodex-media",
  "ricodex-render",
  "png",
- "pollster 1.0.1",
  "rfd",
- "wgpu 30.0.1",
 ]
 
 [[package]]
