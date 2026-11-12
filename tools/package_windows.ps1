@@ -6,7 +6,10 @@ param(
 
     [string]$FfmpegArchiveUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip",
 
-    [string]$FfmpegArchiveSha256 = ""
+    [string]$FfmpegArchiveSha256 = "",
+
+    [Parameter(Mandatory = $true)]
+    [string]$VcRedistPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +18,7 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repoRoot
 
 $ffmpegRootPath = (Resolve-Path $FfmpegRoot).Path
+$vcRedistSource = (Resolve-Path $VcRedistPath).Path
 $ffmpegBin = Join-Path $ffmpegRootPath "bin"
 $appStage = Join-Path $repoRoot $OutputRoot
 $licenseStage = Join-Path $appStage "RicoDex\licenses"
@@ -71,6 +75,8 @@ foreach ($entry in $licenseUrls.GetEnumerator()) {
         throw "Failed to retrieve the FFmpeg license file: $($entry.Key)"
     }
 }
+
+Copy-Item $vcRedistSource (Join-Path $appStage "vc_redist.x64.exe")
 
 $ffmpegExe = Join-Path $ffmpegBin "ffmpeg.exe"
 if (Test-Path $ffmpegExe -PathType Leaf) {
