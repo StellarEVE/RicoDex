@@ -2,12 +2,15 @@
 
 RicoDex source is intended to be licensed under Apache-2.0; see the repository's LICENSE.
 
-The supplied product breakdown records an unresolved distribution issue: the FFmpeg shared build previously staged with Windows executables may not match the intended permissive licence configuration. Dynamic linking alone does not settle every FFmpeg and external codec licence obligation.
+The Windows CI workflow currently uses the BtbN FFmpeg 8.1 LGPL shared build rather than its GPL shared build. This avoids intentionally selecting the GPL variant and keeps FFmpeg in dynamically linked DLLs. BtbN documents that its LGPL variant omits GPL-only dependencies such as libx264 and libx265. This choice alone does not establish full redistribution compliance.
 
-Before distributing bundled Windows binaries, the owner must choose and document:
-- the exact FFmpeg build configuration and its licence notices;
-- optional libraries and encoders to exclude;
+The workflow creates experimental GitHub Actions artifacts only. It stages all DLL files from the FFmpeg package, includes the LGPL v2.1 license text, records the FFmpeg build information and archive SHA-256, and includes the Microsoft Visual C++ Redistributable installer. It does not create a GitHub Release.
+
+Before public redistribution, the owner must complete and document:
+- the exact FFmpeg and transitive dependency inventory, including each DLL's licence and required notices;
+- the corresponding source code and build materials for the exact FFmpeg build and any bundled libraries;
+- the exact FFmpeg configure options and optional libraries or encoders to exclude;
 - the guaranteed software encoding floor on machines without a working hardware encoder;
-- notices and source-offer obligations, if any, applicable to that exact build.
+- any additional notices, source-offer, reverse-engineering, relinking or other obligations applicable to the selected build.
 
-Until that decision is documented and reviewed, CI may compile and test the project, but RicoDex must not publish bundled binary releases. This keeps source-code licensing separate from obligations of third-party binaries.
+The CI package includes a visible status notice stating that it is an experimental validation artifact and must not be redistributed as a public release until this review is complete. Do not treat the availability of an Actions artifact as a completed legal review. Dynamic linking alone does not settle every FFmpeg and external codec licence obligation.
