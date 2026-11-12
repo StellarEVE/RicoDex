@@ -24,7 +24,12 @@ fn make_fixture(dir: &std::path::Path) -> PathBuf {
     if path.is_file() {
         return path;
     }
-    let status = Command::new("ffmpeg")
+    // CI can use a GPL-enabled FFmpeg executable only to generate this
+    // H.264 fixture. The application itself remains linked to the LGPL
+    // FFmpeg libraries used by the packaging workflow.
+    let ffmpeg = std::env::var_os("RICODEX_TEST_FFMPEG")
+        .unwrap_or_else(|| "ffmpeg".into());
+    let status = Command::new(ffmpeg)
         .args([
             "-y",
             "-v",
