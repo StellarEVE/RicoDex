@@ -39,7 +39,12 @@ fn test_dir(name: &str) -> PathBuf {
 }
 
 fn run_ffmpeg(args: &[&str]) {
-    let status = Command::new("ffmpeg")
+    // Use the explicit fixture encoder selected by CI when present.
+    // The package build remains linked to the LGPL FFmpeg libraries;
+    // this executable is used only to create test media.
+    let ffmpeg = std::env::var_os("RICODEX_TEST_FFMPEG")
+        .unwrap_or_else(|| "ffmpeg".into());
+    let status = Command::new(ffmpeg)
         .args(args)
         .status()
         .expect("run ffmpeg");
