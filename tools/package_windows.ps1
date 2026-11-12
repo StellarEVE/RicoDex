@@ -56,6 +56,7 @@ New-Item -ItemType Directory -Path $licenseStage -Force | Out-Null
 
 Copy-Item (Join-Path $repoRoot "target\release\ricodex-app.exe") (Join-Path $appStage "RicoDex\ricodex-app.exe")
 Copy-Item (Join-Path $repoRoot "target\release\ricodex-cli.exe") (Join-Path $appStage "RicoDex\ricodex-cli.exe")
+Copy-Item (Join-Path $repoRoot "LICENSE") (Join-Path $licenseStage "LICENSE-RicoDex.txt")
 
 # The shared FFmpeg package builds the libav* DLL family and any DLL
 # dependencies it needs into this directory. Ship the whole DLL set so
