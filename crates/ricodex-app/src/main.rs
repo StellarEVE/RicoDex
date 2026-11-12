@@ -16,15 +16,12 @@
 //! binary has no console, so without this log a failed start is
 //! invisible.
 //!
-//! Renderer choice: winit allows only one event loop per process,
-//! so the renderer must be chosen before the window is created,
-//! never retried after a failed start. The app therefore probes
-//! the wgpu stack first (the same wgpu version the interface
-//! uses), asking for any real adapter. If an adapter answers, the
-//! app runs on wgpu. If none does, as happens on older laptops
-//! and dual GPU machines whose Vulkan or DirectX 12 path is
-//! unhealthy, the app runs on the OpenGL (glow) renderer instead,
-//! whose drivers are far older and more forgiving.
+//! Renderer choice: RicoDex defaults to the OpenGL (glow)
+//! renderer because it has broader compatibility across Windows
+//! graphics drivers. The wgpu renderer remains available as an
+//! explicit opt-in through RICODEX_RENDERER=wgpu. We do not probe
+//! wgpu automatically at startup: some graphics drivers can hang
+//! or crash during adapter enumeration, before the app can recover.
 //!
 //! Environment hooks, used by automated runs:
 //!   RICODEX_IMPORT   comma separated file paths to import at start
@@ -70,61 +67,21 @@ fn log_line(text: &str) {
     }
 }
 
-/// Ask the wgpu stack whether this machine has any usable
-/// adapter, before any window exists. Returns a short description
-/// of the adapter when one answers. Panics inside the graphics
-/// stack are caught and treated as no adapter.
-fn probe_wgpu() -> Option<String> {
-    let outcome = std::panic::catch_unwind(|| {
-        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-        descriptor.backends = wgpu::Backends::all();
-        let instance = wgpu::Instance::new(descriptor);
-        let adapter = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::None,
-                force_fallback_adapter: false,
-                compatible_surface: None,
-                ..Default::default()
-            },
-        ))
-        .ok()?;
-        let info = adapter.get_info();
-        Some(format!(
-            "{} via {:?} ({:?})",
-            info.name, info.backend, info.device_type
-        ))
-    });
-    match outcome {
-        Ok(found) => found,
-        Err(_) => {
-            log_line("wgpu probe: panicked inside the graphics stack");
-            None
-        }
-    }
-}
-
-/// Choose the renderer for this run: an explicit RICODEX_RENDERER
-/// wins, otherwise wgpu when the probe found an adapter, glow
-/// when it did not.
+/// Choose the renderer before creating the window. OpenGL is the
+/// default for startup compatibility; wgpu is opt-in because adapter
+/// enumeration can hang or crash inside some native graphics drivers.
 fn choose_renderer() -> (eframe::Renderer, &'static str) {
     match std::env::var("RICODEX_RENDERER") {
-        Ok(v) if v.eq_ignore_ascii_case("glow") => {
-            log_line("renderer forced by RICODEX_RENDERER: glow");
-            return (eframe::Renderer::Glow, "glow");
-        }
         Ok(v) if v.eq_ignore_ascii_case("wgpu") => {
-            log_line("renderer forced by RICODEX_RENDERER: wgpu");
-            return (eframe::Renderer::Wgpu, "wgpu");
-        }
-        _ => {}
-    }
-    match probe_wgpu() {
-        Some(adapter) => {
-            log_line(&format!("wgpu probe: adapter found, {adapter}"));
+            log_line("renderer explicitly selected by RICODEX_RENDERER: wgpu");
             (eframe::Renderer::Wgpu, "wgpu")
         }
-        None => {
-            log_line("wgpu probe: no adapter, falling back to glow");
+        Ok(v) if v.eq_ignore_ascii_case("glow") => {
+            log_line("renderer explicitly selected by RICODEX_RENDERER: glow");
+            (eframe::Renderer::Glow, "glow")
+        }
+        _ => {
+            log_line("renderer default: glow (set RICODEX_RENDERER=wgpu to opt in)");
             (eframe::Renderer::Glow, "glow")
         }
     }
