@@ -42,9 +42,9 @@ The foundation binaries are currently named ricodex-app.exe and ricodex-cli.exe.
 
 ## CI and distribution
 
-Pushes and pull requests to main run Windows workspace tests and a release build. CI does not prove compatibility on every physical GPU or Windows machine.
+Pushes, pull requests and manual workflow dispatches run Windows workspace tests and a release build. The workflow stages the FFmpeg runtime DLLs, includes the Microsoft Visual C++ Redistributable installer, and produces a portable ZIP plus an Inno Setup installer as GitHub Actions artifacts. It does not create a GitHub Release. Workflow artifacts are retained for 14 days.
 
-Binary distribution is intentionally not enabled yet. The bundled FFmpeg build and redistributable encoder set require a documented licence decision before downloadable packages can be published. See docs/LICENSING.md.
+These are experimental CI validation packages, not approved public redistribution releases. The LGPL FFmpeg variant is used instead of the GPL variant, but the transitive dependency licence inventory and corresponding-source obligations still require review before public redistribution. See docs/LICENSING.md.
 
 ## Documents
 
