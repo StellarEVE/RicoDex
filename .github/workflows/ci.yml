@@ -24,8 +24,10 @@ jobs:
       - name: Download FFmpeg shared development build
         shell: pwsh
         run: |
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip"
           Invoke-WebRequest -Uri $url -OutFile ffmpeg-shared.zip
+          $archiveHash = (Get-FileHash ffmpeg-shared.zip -Algorithm SHA256).Hash
+          "FFMPEG_ARCHIVE_SHA256=$archiveHash" | Out-File -FilePath $env:GITHUB_ENV -Append
           Expand-Archive ffmpeg-shared.zip -DestinationPath ffmpeg-shared
           $root = Get-ChildItem ffmpeg-shared -Directory | Select-Object -First 1
           if (-not (Test-Path "$($root.FullName)\include\libavutil\avutil.h")) { throw "FFmpeg headers were not found." }
@@ -42,12 +44,37 @@ jobs:
         run: cargo test --workspace
       - name: Build release binaries
         run: cargo build --release --workspace
-      - name: Upload Windows executables
+      - name: Download Microsoft Visual C++ Redistributable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "$PWD\vc_redist.x64.exe"
+      - name: Stage portable application and runtime dependencies
+        shell: pwsh
+        run: |
+          ./tools/package_windows.ps1 `
+            -FfmpegRoot "$env:FFMPEG_ROOT" `
+            -VcRedistPath "$PWD\vc_redist.x64.exe" `
+            -FfmpegArchiveSha256 "$env:FFMPEG_ARCHIVE_SHA256"
+      - name: Create portable ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\portable\*" -DestinationPath "dist\RicoDex-Windows-x64.zip" -CompressionLevel Optimal
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe" | Select-Object -First 1
+          if (-not $iscc) { throw "Inno Setup compiler was not found." }
+          & $iscc.FullName "installer\ricodex.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
+      - name: Upload Windows packages
         uses: actions/upload-artifact@v4
         with:
-          name: RicoDex-Windows-x64-${{ github.sha }}
+          name: RicoDex-Windows-packages-${{ github.sha }}
           path: |
-            target/release/ricodex-app.exe
-            target/release/ricodex-cli.exe
+            dist/RicoDex-Windows-x64.zip
+            dist/RicoDex-*-setup.exe
           if-no-files-found: error
           retention-days: 14
