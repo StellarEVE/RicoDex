@@ -4,7 +4,9 @@ RicoDex source is intended to be licensed under Apache-2.0; see the repository's
 
 The Windows CI workflow currently uses the BtbN FFmpeg 8.1 LGPL shared build rather than its GPL shared build. This avoids intentionally selecting the GPL variant and keeps FFmpeg in dynamically linked DLLs. BtbN documents that its LGPL variant omits GPL-only dependencies such as libx264 and libx265. This choice alone does not establish full redistribution compliance.
 
-The workflow creates experimental GitHub Actions artifacts only. It stages all DLL files from the FFmpeg package, includes the LGPL v2.1 license text, records the FFmpeg build information and archive SHA-256, and includes the Microsoft Visual C++ Redistributable installer. It does not create a GitHub Release.
+The workflow creates experimental GitHub Actions artifacts only. It stages FFmpeg runtime DLLs from the LGPL build, includes the LGPL v2.1 license text, records the FFmpeg build information and archive SHA-256, and includes the Microsoft Visual C++ Redistributable installer. It does not create a GitHub Release.
+
+For media integration tests, CI separately downloads a GPL-enabled FFmpeg executable to generate H.264 test fixtures with libx264. The test helper uses this executable only for fixture generation through the RICODEX_TEST_FFMPEG environment variable. That GPL test build is not used as the FFmpeg library linked by RicoDex and is not copied into the staged portable ZIP or installer.
 
 Before public redistribution, the owner must complete and document:
 - the exact FFmpeg and transitive dependency inventory, including each DLL's licence and required notices;

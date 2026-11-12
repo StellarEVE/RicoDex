@@ -40,8 +40,22 @@ jobs:
           "FFMPEG_INCLUDE_DIR=$env:FFMPEG_ROOT\include" | Out-File -FilePath $env:GITHUB_ENV -Append
           "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$env:FFMPEG_ROOT\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Download GPL FFmpeg for H.264 test fixtures only
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg-test-gpl.zip
+          Expand-Archive ffmpeg-test-gpl.zip -DestinationPath ffmpeg-test-gpl
+          $testRoot = Get-ChildItem ffmpeg-test-gpl -Directory | Select-Object -First 1
+          $testFfmpeg = Join-Path $testRoot.FullName "bin\ffmpeg.exe"
+          if (-not (Test-Path $testFfmpeg)) { throw "Test-only FFmpeg executable was not found." }
+          $encoders = (& $testFfmpeg -hide_banner -encoders 2>&1 | Out-String)
+          if ($encoders -notmatch "libx264") { throw "Test-only FFmpeg build does not provide libx264." }
+          "RICODEX_TEST_FFMPEG=$testFfmpeg" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Run workspace tests
-        run: cargo test --workspace
+        shell: pwsh
+        run: |
+          cargo test --workspace
       - name: Build release binaries
         run: cargo build --release --workspace
       - name: Download Microsoft Visual C++ Redistributable

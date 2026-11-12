@@ -19,7 +19,14 @@ pub fn test_dir(name: &str) -> PathBuf {
 }
 
 fn run_ffmpeg(args: &[&str]) {
-    let status = Command::new("ffmpeg")
+    // CI can point fixture generation at a separate FFmpeg executable.
+    // This is useful when the application is linked against an LGPL FFmpeg
+    // build but fixtures still require a codec (such as libx264) that is
+    // available only in a GPL-enabled test build. Local runs continue to
+    // use "ffmpeg" from PATH when no override is set.
+    let ffmpeg = std::env::var_os("RICODEX_TEST_FFMPEG")
+        .unwrap_or_else(|| "ffmpeg".into());
+    let status = Command::new(ffmpeg)
         .args(args)
         .status()
         .expect("run ffmpeg");
