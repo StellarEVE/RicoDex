@@ -38,7 +38,7 @@ A stable Rust toolchain and FFmpeg development files required by rsmpeg are need
     cargo test --workspace
     cargo build --release --workspace
 
-The foundation binaries are currently named ricodex-app.exe and ricodex-cli.exe.
+The foundation binaries are currently named ricodex-app.exe and ricodex-cli.exe. On Windows, the desktop app defaults to the OpenGL (glow) renderer for compatibility. The wgpu renderer can be selected explicitly by setting `RICODEX_RENDERER=wgpu` before launch.
 
 ## CI and distribution
 
