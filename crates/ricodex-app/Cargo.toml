@@ -14,16 +14,10 @@ ricodex-render = { path = "../ricodex-render" }
 # The interface toolkit lives only in this crate, so the front end
 # stays replaceable (see tools/check_layers.sh). egui 0.37 is the
 # current release the crates index offers; eframe is its runner.
-# The glow (OpenGL) renderer is compiled in beside the default
-# wgpu renderer so the app can fall back to it on machines whose
-# Vulkan or DirectX 12 path is unhealthy (see main.rs).
+# Compile both renderers. RicoDex defaults to glow for Windows
+# startup compatibility; wgpu remains available as an explicit opt-in.
 eframe = { version = "0.37", features = ["glow"] }
 egui = "0.37"
-# The startup probe uses the same wgpu generation the interface
-# itself runs on, so its verdict reflects the real stack (see
-# main.rs). pollster drives its one async call to completion.
-wgpu = "30"
-pollster = "1"
 # Native file dialogs for import and export paths. Paths can also
 # arrive through the RICODEX_IMPORT and RICODEX_EXPORT environment
 # variables, which is how the automated runs drive the app.
