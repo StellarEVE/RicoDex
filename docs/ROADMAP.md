@@ -26,6 +26,7 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 The foundation is real, but several user-facing workflows remain incomplete:
 
 - The Edit page now supports source/duration trimming, splitting, ripple deletion, drag-to-reorder, pinning and undo/redo through Core commands and History. It remains a deliberately small single-track editing surface.
+- Planner analysis uses coordinates relative to the user-selected source-trim window; installed timeline items are converted back to absolute original-media time. Core validation rejects items outside the usable source window, and source trim settings lock once a timeline exists.
 - The app export path is a sequential contiguous video render with hard cuts. Full-timeline rendering, gaps, transitions and audio mixing are not integrated into the app export workflow.
 - Application-level Save, Save As and Open are integrated with versioned Core JSON persistence. Media relinking verifies saved fingerprints; a project without a fingerprint can enroll one only from its original saved path, not from an arbitrary moved replacement. The complete Windows interaction workflow still needs a manual smoke test.
 - Render scheduling and cache foundations need end-to-end integration and invalidation tests.
@@ -59,7 +60,8 @@ The foundation is real, but several user-facing workflows remain incomplete:
 - Preserve generated-clip pinning and clearly report rejected edits.
 - Provide application-level Save, Save As and Open controls backed by Core's atomic JSON persistence and backup file.
 - Persist selected-song identity and per-asset intro/outro trims in project schema 2; migrate schema-1 projects with safe defaults and infer a selected song only when exactly one audio asset exists.
-- Rebuild the Media pool when reopening a project and verify every available source against its saved content fingerprint.
+- Keep item source positions in absolute original-media coordinates. Convert the planner's trimmed-window offsets at plan installation, validate every item against the asset's usable trimmed range, and lock source-trim controls after a timeline exists.
+- Rebuild the Media pool when reopening a project and verify every available source against its saved content fingerprint. A reopened non-empty timeline is conservatively treated as user-edited because generated/manual clip provenance is not yet persisted; adding media and regenerating the cut are blocked to protect existing edits.
 - Provide a Locate flow for missing/moved files. Accept a moved replacement only when its fingerprint matches the saved asset. When no fingerprint was saved, allow fingerprint enrollment from the original stored path only; never silently adopt a different file.
 - Add acceptance tests for schema migration, metadata round trips, editing history and fingerprint-matched relinking.
 
