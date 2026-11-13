@@ -198,3 +198,56 @@ fn silence_analyses_to_an_empty_grid() {
     assert!(analysis.onsets.is_empty());
     assert_eq!(analysis.duration, Tick::from_seconds(4.0));
 }
+
+
+fn write_stereo_wav(path: &std::path::Path, left: &[f32], right: &[f32], rate: u32) {
+    assert_eq!(left.len(), right.len());
+    let mut data = Vec::<u8>::with_capacity(left.len() * 4);
+    for (&l, &r) in left.iter().zip(right) {
+        for sample in [l, r] {
+            let value = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    let mut wav = Vec::<u8>::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&rate.to_le_bytes());
+    wav.extend_from_slice(&(rate * 4).to_le_bytes());
+    wav.extend_from_slice(&4u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&data);
+    std::fs::write(path, wav).unwrap();
+}
+
+#[test]
+fn stereo_decoder_preserves_left_and_right_channels() {
+    let rate = 48_000u32;
+    let seconds = 1.0;
+    let left = sine_samples(rate, 440.0, 0.5, seconds);
+    let right = sine_samples(rate, 880.0, 0.25, seconds);
+    let path = temp_path("stereo.wav");
+    write_stereo_wav(&path, &left, &right, rate);
+
+    let decoded = decode_stereo_file(&path).expect("decode stereo wav");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(decoded.sample_rate, rate);
+    assert_eq!(decoded.sample_frames(), left.len());
+    assert!((decoded.duration_seconds() - seconds).abs() < 0.001);
+
+    let rms = |channel: usize| {
+        let energy = decoded.samples.iter().skip(channel).step_by(2)
+            .map(|sample| sample * sample)
+            .sum::<f32>();
+        (energy / decoded.sample_frames() as f32).sqrt()
+    };
+    assert!((rms(0) - 0.5 / 2.0f32.sqrt()).abs() < 0.02);
+    assert!((rms(1) - 0.25 / 2.0f32.sqrt()).abs() < 0.02);
+    assert!(rms(0) > rms(1) * 1.8, "left/right channels were collapsed");
+}

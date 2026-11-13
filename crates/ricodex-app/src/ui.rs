@@ -1093,12 +1093,29 @@ impl EditorApp {
                     "video bitrate: {} kbps · audio bitrate: {} kbps",
                     settings.video_bitrate_kbps, settings.audio_bitrate_kbps
                 ));
+                let selected_song = self.state.project.song_asset_id.and_then(|song_id| {
+                    self.state
+                        .project
+                        .assets
+                        .iter()
+                        .find(|asset| asset.id == song_id)
+                        .map(|asset| {
+                            std::path::Path::new(&asset.path_hint)
+                                .file_name()
+                                .map(|name| name.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| asset.path_hint.clone())
+                        })
+                });
+                let soundtrack_status = match selected_song {
+                    Some(name) => format!(
+                        "Soundtrack: {name} (stereo AAC). Starts at timeline zero and is fitted to the video duration. Clip-source audio, fades and track gain are not included yet."
+                    ),
+                    None => "No song selected. This export will be video-only.".to_string(),
+                };
                 ui.label(
-                    RichText::new(
-                        "Read only in this slice. The export is a sequential hard cut render, video only.",
-                    )
-                    .color(SILVER_DIM)
-                    .small(),
+                    RichText::new(soundtrack_status)
+                        .color(SILVER_DIM)
+                        .small(),
                 );
             });
         ui.add_space(8.0);

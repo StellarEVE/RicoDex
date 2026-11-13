@@ -47,4 +47,4 @@ Run this checklist against the latest portable ZIP or installer from GitHub Acti
 
 ## Known scope limits
 
-The app exporter currently produces a contiguous, video-only hard-cut sequence. Audio mixing, timeline gaps, transitions and unified interactive preview/export are Phase 2 work. Passing this smoke test does not complete the FFmpeg and transitive-library licensing review required for public binary redistribution.
+The app exporter currently produces a contiguous hard-cut video sequence and includes the selected song as a stereo AAC soundtrack when one is selected. Clip-source audio, timeline audio tracks, fades/gain controls, gaps, transitions and unified interactive preview/export remain Phase 2 work. Passing this smoke test does not complete the FFmpeg and transitive-library licensing review required for public binary redistribution.

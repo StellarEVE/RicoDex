@@ -44,7 +44,7 @@ pub use error::RenderError;
 pub use frame::Frame;
 pub use gpu::{frame_difference, GpuCompositor};
 pub use job::{
-    render_project, render_sequential, RenderOutcome, RenderRequest, SequentialOutcome,
+    render_project, render_sequential, render_sequential_with_audio, RenderOutcome, RenderRequest, SequentialOutcome, StereoAudioInput,
     TransitionSpec,
 };
 pub use transition::{TransitionKind, TransitionParams};

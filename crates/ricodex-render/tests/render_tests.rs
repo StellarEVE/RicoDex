@@ -19,12 +19,55 @@ use ricodex_core::{
     Asset, AssetKind, Fingerprint, Item, Project, Tick, Track, TrackKind,
 };
 use ricodex_render::{
-    apply_effects, composite_cpu, frame_difference, render_project, EffectOp, Frame,
+    apply_effects, composite_cpu, frame_difference, render_project, render_sequential_with_audio, EffectOp, Frame, StereoAudioInput,
     GpuCompositor, RenderCache, RenderRequest, TransitionKind, TransitionParams,
     TransitionSpec,
 };
 
 // ------------------------------------------------------------ helpers
+
+fn write_stereo_wav(path: &Path, seconds: f64, rate: u32) {
+    let frames = (seconds * rate as f64) as usize;
+    let mut data = Vec::<u8>::with_capacity(frames * 4);
+    for index in 0..frames {
+        let time = index as f64 / rate as f64;
+        let left = (2.0 * std::f64::consts::PI * 440.0 * time).sin() * 0.5;
+        let right = (2.0 * std::f64::consts::PI * 880.0 * time).sin() * 0.25;
+        for sample in [left, right] {
+            let value = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    let mut wav = Vec::<u8>::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&rate.to_le_bytes());
+    wav.extend_from_slice(&(rate * 4).to_le_bytes());
+    wav.extend_from_slice(&4u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&data);
+    std::fs::write(path, wav).unwrap();
+}
+
+fn positive_zero_crossings(samples: &[f32], channel: usize, start: usize, end: usize) -> usize {
+    let mut crossings = 0usize;
+    let mut previous = samples[start * 2 + channel];
+    for frame in (start + 1)..end {
+        let current = samples[frame * 2 + channel];
+        if previous <= 0.0 && current > 0.0 {
+            crossings += 1;
+        }
+        previous = current;
+    }
+    crossings
+}
+
 
 fn test_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -613,4 +656,79 @@ fn sequential_export_rejects_a_gap() {
         "unexpected error: {error}"
     );
     assert!(!output.exists(), "a rejected export writes no file");
+}
+
+
+#[test]
+fn sequential_export_muxes_selected_stereo_song_in_sync_with_video() {
+    let dir = test_dir("sequential-audio");
+    let (a, b) = make_clips(&dir);
+    let song_path = dir.join("song.wav");
+    write_stereo_wav(&song_path, 3.0, 44_100);
+    let source_audio = ricodex_audio::decode_stereo_file(&song_path).unwrap();
+    assert_eq!(source_audio.sample_rate, 44_100);
+
+    let mut project = three_clip_project(&a, &b);
+    project.assets.push(Asset {
+        id: 3,
+        fingerprint: Fingerprint::new(3003, 77, 88, 99),
+        path_hint: song_path.to_string_lossy().into_owned(),
+        kind: AssetKind::Audio,
+        duration: Tick::from_seconds(3.0),
+        intro_trim: Tick::ZERO,
+        outro_trim: Tick::ZERO,
+    });
+    project.song_asset_id = Some(3);
+
+    let output = dir.join("with-song.mp4");
+    let progress_calls = RefCell::new(Vec::new());
+    let outcome = render_sequential_with_audio(
+        &project,
+        1,
+        &output,
+        Some(StereoAudioInput {
+            interleaved_samples: &source_audio.samples,
+            sample_rate: source_audio.sample_rate,
+        }),
+        &mut |fraction| progress_calls.borrow_mut().push(fraction),
+    )
+    .unwrap();
+
+    assert_eq!(outcome.frames_written, 30);
+    assert_eq!(outcome.duration, Tick::from_seconds(3.0));
+    assert!(progress_calls.borrow().windows(2).all(|pair| pair[1] >= pair[0]));
+    assert_eq!(*progress_calls.borrow().last().unwrap(), 1.0);
+
+    let exported = ricodex_audio::decode_stereo_file(&output)
+        .expect("exported MP4 must contain decodable AAC audio");
+    assert_eq!(exported.sample_rate, 48_000);
+    assert!(exported.sample_frames() > 48_000 * 2);
+    assert!(
+        (exported.duration_seconds() - 3.0).abs() < 0.06,
+        "audio duration {} should match 3 second video",
+        exported.duration_seconds()
+    );
+
+    // Different tones in the two input channels prove that the
+    // soundtrack remained stereo through decode, resample and AAC mux.
+    let start = 48_000 / 5;
+    let end = 48_000 * 9 / 10;
+    let left_crossings = positive_zero_crossings(&exported.samples, 0, start, end);
+    let right_crossings = positive_zero_crossings(&exported.samples, 1, start, end);
+    assert!(
+        (250..=360).contains(&left_crossings),
+        "left channel should remain near 440 Hz, crossings={left_crossings}"
+    );
+    assert!(
+        (520..=720).contains(&right_crossings),
+        "right channel should remain near 880 Hz, crossings={right_crossings}"
+    );
+
+    let video_info = ricodex_platform::probe(&output).unwrap();
+    assert!(
+        (video_info.duration.to_seconds() - exported.duration_seconds()).abs() < 0.06,
+        "audio and video durations diverged: video={} audio={}",
+        video_info.duration.to_seconds(),
+        exported.duration_seconds()
+    );
 }

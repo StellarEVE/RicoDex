@@ -17,3 +17,6 @@ serde_json = { workspace = true }
 # ~/workspace/spikes/compositor-spike/RESULTS.md).
 wgpu = "0.20"
 pollster = "0.3"
+
+[dev-dependencies]
+ricodex-audio = { path = "../ricodex-audio" }

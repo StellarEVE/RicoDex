@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-use ricodex_core::{ItemId, Project};
+use ricodex_core::{AssetKind, ItemId, Project};
 use ricodex_engine::{BeatGrid, Planner, SourceInfo};
 use ricodex_media::AnalysisCache;
 
@@ -241,7 +241,55 @@ pub fn run_export(project: Project, output_path: PathBuf, tx: Sender<ExportMsg>)
     let mut progress = |fraction: f32| {
         let _ = tx.send(ExportMsg::Progress { fraction });
     };
-    match ricodex_render::render_sequential(&project, VIDEO_TRACK_ID, &output_path, &mut progress) {
+
+    // The selected song is the soundtrack for this export slice. Decode
+    // it here, at the App orchestration boundary, then pass plain stereo
+    // PCM to Render. Projects without a selected song remain video-only.
+    let result = match project.song_asset_id {
+        Some(song_id) => match project.assets.iter().find(|asset| asset.id == song_id) {
+            Some(asset) if asset.kind == AssetKind::Audio => {
+                let path = PathBuf::from(&asset.path_hint);
+                match ricodex_audio::decode_stereo_file(&path) {
+                    Ok(decoded) => ricodex_render::render_sequential_with_audio(
+                        &project,
+                        VIDEO_TRACK_ID,
+                        &output_path,
+                        Some(ricodex_render::StereoAudioInput {
+                            interleaved_samples: &decoded.samples,
+                            sample_rate: decoded.sample_rate,
+                        }),
+                        &mut progress,
+                    ),
+                    Err(error) => {
+                        let _ = tx.send(ExportMsg::Failed {
+                            message: format!("selected song could not be decoded: {error}"),
+                        });
+                        return;
+                    }
+                }
+            }
+            Some(_) => {
+                let _ = tx.send(ExportMsg::Failed {
+                    message: "selected song asset is not audio".to_string(),
+                });
+                return;
+            }
+            None => {
+                let _ = tx.send(ExportMsg::Failed {
+                    message: format!("selected song asset {song_id} is missing from the project"),
+                });
+                return;
+            }
+        },
+        None => ricodex_render::render_sequential(
+            &project,
+            VIDEO_TRACK_ID,
+            &output_path,
+            &mut progress,
+        ),
+    };
+
+    match result {
         Ok(outcome) => {
             let _ = tx.send(ExportMsg::Finished {
                 encoder_name: outcome.encoder_name,
