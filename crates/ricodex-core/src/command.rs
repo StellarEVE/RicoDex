@@ -16,6 +16,13 @@ pub enum Command {
     InsertItem { track_id: TrackId, item: Item },
     /// Remove an item from whichever track holds it.
     RemoveItem { item_id: ItemId },
+    /// Split one item at an absolute timeline position. The right-hand item
+    /// continues from the matching source position.
+    SplitItem {
+        item_id: ItemId,
+        at: Tick,
+        new_item_id: ItemId,
+    },
     /// Move an item to a new timeline start, optionally onto another track.
     MoveItem {
         item_id: ItemId,
@@ -41,6 +48,7 @@ pub enum CommandError {
     UnknownItem { item_id: ItemId },
     UnknownTrack { track_id: TrackId },
     TrackLocked { track_id: TrackId },
+    InvalidSplitPoint { item_id: ItemId },
     Invalid(ModelError),
 }
 
@@ -51,6 +59,9 @@ impl std::fmt::Display for CommandError {
             CommandError::UnknownTrack { track_id } => write!(f, "unknown track {track_id}"),
             CommandError::TrackLocked { track_id } => {
                 write!(f, "track {track_id} is locked")
+            }
+            CommandError::InvalidSplitPoint { item_id } => {
+                write!(f, "split point must be inside item {item_id}")
             }
             CommandError::Invalid(e) => write!(f, "command would make the project invalid: {e}"),
         }
@@ -108,6 +119,51 @@ impl Project {
                 }
                 let items = self.items_mut(track_id).expect("track found above");
                 items.retain(|i| i.id != *item_id);
+                Ok(())
+            }
+            Command::SplitItem {
+                item_id,
+                at,
+                new_item_id,
+            } => {
+                let track_id = self
+                    .find_item_track(*item_id)
+                    .ok_or(CommandError::UnknownItem { item_id: *item_id })?;
+                if self.track(track_id).map(|t| t.locked).unwrap_or(false) {
+                    return Err(CommandError::TrackLocked { track_id });
+                }
+                if self.item(*new_item_id).is_some() {
+                    return Err(CommandError::Invalid(ModelError::DuplicateItemId {
+                        id: *new_item_id,
+                    }));
+                }
+                let original = self
+                    .items(track_id)
+                    .and_then(|items| items.iter().find(|item| item.id == *item_id))
+                    .cloned()
+                    .ok_or(CommandError::UnknownItem { item_id: *item_id })?;
+                if *at <= original.start || *at >= original.end() {
+                    return Err(CommandError::InvalidSplitPoint { item_id: *item_id });
+                }
+
+                let left_duration = *at - original.start;
+                let source_offset = *at - original.start;
+                let mut right = Item::new(
+                    *new_item_id,
+                    original.asset_id,
+                    *at,
+                    original.end() - *at,
+                    original.source_in + source_offset,
+                );
+                right.enabled = original.enabled;
+
+                let items = self.items_mut(track_id).expect("track found above");
+                let position = items
+                    .iter()
+                    .position(|item| item.id == *item_id)
+                    .expect("item found above");
+                items[position].duration = left_duration;
+                items.insert(position + 1, right);
                 Ok(())
             }
             Command::MoveItem {
@@ -201,5 +257,107 @@ impl Project {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::history::History;
+    use crate::model::{Asset, AssetKind, Fingerprint, Track, TrackKind};
+
+    fn project_with_one_clip() -> Project {
+        let mut project = Project::new();
+        project.assets.push(Asset {
+            id: 1,
+            fingerprint: Fingerprint::new(1024, 1, 2, 3),
+            path_hint: "clip.mp4".to_string(),
+            kind: AssetKind::Video,
+            duration: Tick::from_seconds(20.0),
+        });
+        project.add_track(Track::new(1, TrackKind::Video, "V1"));
+        project.items_mut(1).unwrap().push(Item::new(
+            10,
+            1,
+            Tick::from_seconds(2.0),
+            Tick::from_seconds(8.0),
+            Tick::from_seconds(1.0),
+        ));
+        project.validate().unwrap();
+        project
+    }
+
+    #[test]
+    fn split_preserves_timeline_and_source_continuity() {
+        let split_at = Tick::from_seconds(6.0);
+        let result = project_with_one_clip()
+            .apply(&Command::SplitItem {
+                item_id: 10,
+                at: split_at,
+                new_item_id: 11,
+            })
+            .unwrap();
+        let items = result.items(1).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].start, Tick::from_seconds(2.0));
+        assert_eq!(items[0].duration, Tick::from_seconds(4.0));
+        assert_eq!(items[0].source_in, Tick::from_seconds(1.0));
+        assert_eq!(items[1].start, Tick::from_seconds(6.0));
+        assert_eq!(items[1].duration, Tick::from_seconds(4.0));
+        assert_eq!(items[1].source_in, Tick::from_seconds(5.0));
+        assert_eq!(items[0].end(), items[1].start);
+        result.validate().unwrap();
+    }
+
+    #[test]
+    fn split_rejects_points_at_or_outside_item_edges() {
+        for split_at in [
+            Tick::from_seconds(2.0),
+            Tick::from_seconds(10.0),
+            Tick::from_seconds(1.0),
+        ] {
+            let error = project_with_one_clip()
+                .apply(&Command::SplitItem {
+                    item_id: 10,
+                    at: split_at,
+                    new_item_id: 11,
+                })
+                .unwrap_err()
+                .1;
+            assert_eq!(error, CommandError::InvalidSplitPoint { item_id: 10 });
+        }
+    }
+
+    #[test]
+    fn split_rejects_duplicate_new_item_ids() {
+        let error = project_with_one_clip()
+            .apply(&Command::SplitItem {
+                item_id: 10,
+                at: Tick::from_seconds(6.0),
+                new_item_id: 10,
+            })
+            .unwrap_err()
+            .1;
+        assert_eq!(
+            error,
+            CommandError::Invalid(ModelError::DuplicateItemId { id: 10 })
+        );
+    }
+
+    #[test]
+    fn split_participates_in_snapshot_undo_and_redo() {
+        let mut history = History::new(project_with_one_clip());
+        history
+            .apply(&Command::SplitItem {
+                item_id: 10,
+                at: Tick::from_seconds(6.0),
+                new_item_id: 11,
+            })
+            .unwrap();
+        assert_eq!(history.project().items(1).unwrap().len(), 2);
+        assert!(history.undo());
+        assert_eq!(history.project().items(1).unwrap().len(), 1);
+        assert!(history.redo());
+        assert_eq!(history.project().items(1).unwrap().len(), 2);
     }
 }
