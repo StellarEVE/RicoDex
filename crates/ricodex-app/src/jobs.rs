@@ -21,7 +21,7 @@ use ricodex_media::AnalysisCache;
 
 use crate::state::{
     trimmed_source, ExportMsg, MediaKind, PipelineMsg, PipelineRequest,
-    ProbeResult, VIDEO_TRACK_ID,
+    ProbeResult, RelinkResult, VIDEO_TRACK_ID,
 };
 
 /// Stage 0 for one imported file: the content fingerprint, plus the
@@ -43,6 +43,35 @@ pub fn run_probe(index: usize, path: PathBuf, kind: MediaKind, tx: Sender<ProbeR
     };
     let _ = tx.send(ProbeResult {
         index,
+        fingerprint,
+        duration,
+        probe,
+        error,
+    });
+}
+
+/// Verify a media path restored from a project or selected by the user.
+/// Content identity is checked by AppState before the path is accepted.
+pub fn run_relink_probe(
+    index: usize,
+    path: PathBuf,
+    kind: MediaKind,
+    tx: Sender<RelinkResult>,
+) {
+    let fingerprint = ricodex_media::compute_fingerprint(&path).ok();
+    let (duration, probe, error) = match kind {
+        MediaKind::Video => match ricodex_media::probe(&path) {
+            Ok(probe) => (Some(probe.duration), Some(probe), None),
+            Err(e) => (None, None, Some(format!("probe failed: {e}"))),
+        },
+        MediaKind::Audio => match ricodex_audio::decode_file(&path) {
+            Ok(decoded) => (Some(decoded.duration()), None, None),
+            Err(e) => (None, None, Some(format!("audio read failed: {e}"))),
+        },
+    };
+    let _ = tx.send(RelinkResult {
+        index,
+        path,
         fingerprint,
         duration,
         probe,
