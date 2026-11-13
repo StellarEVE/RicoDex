@@ -763,7 +763,7 @@ impl EditorApp {
                                 .add(
                                     egui::DragValue::new(&mut source_in_seconds)
                                         .speed(0.05)
-                                        .range(0.0..=source_duration)
+                                        .range(0.0..=(source_duration - duration_seconds).max(0.0))
                                         .fixed_decimals(2)
                                         .suffix(" s"),
                                 )
