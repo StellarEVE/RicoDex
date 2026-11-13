@@ -220,6 +220,17 @@ pub struct ProbeResult {
     pub error: Option<String>,
 }
 
+/// Probe result while verifying or locating media referenced by a saved project.
+#[derive(Clone, Debug)]
+pub struct RelinkResult {
+    pub index: usize,
+    pub path: PathBuf,
+    pub fingerprint: Option<Fingerprint>,
+    pub duration: Option<Tick>,
+    pub probe: Option<MediaProbe>,
+    pub error: Option<String>,
+}
+
 /// One event from the pipeline worker thread.
 #[derive(Clone, Debug)]
 pub enum PipelineMsg {
@@ -300,6 +311,10 @@ pub struct AppState {
     /// A new analysis is blocked until those edits are undone, avoiding
     /// silently replacing work that the current planner cannot preserve.
     pub has_manual_edits: bool,
+    /// Current project file path, when the project has been saved or opened.
+    pub project_path: Option<PathBuf>,
+    /// True when project metadata or timeline contents differ from disk.
+    pub is_dirty: bool,
     pub pool: Vec<PoolEntry>,
     pub page: Page,
     pub song_index: Option<usize>,
@@ -337,6 +352,8 @@ impl AppState {
             project,
             history,
             has_manual_edits: false,
+            project_path: None,
+            is_dirty: false,
             pool: Vec::new(),
             page: Page::Media,
             song_index: None,
@@ -382,6 +399,8 @@ impl AppState {
                 MediaKind::Audio => AssetKind::Audio,
             },
             duration: Tick::ZERO,
+            intro_trim: Tick::ZERO,
+            outro_trim: Tick::ZERO,
         });
         self.pool.push(PoolEntry {
             path,
@@ -399,6 +418,7 @@ impl AppState {
         });
         // Import changes project metadata outside the edit-command history.
         self.history = History::new(self.project.clone());
+        self.is_dirty = true;
         if !self.probe_job.is_running() {
             self.probe_job = JobState::Running {
                 label: "probing".to_string(),
@@ -429,9 +449,165 @@ impl AppState {
         }
         // Probe metadata is part of the project snapshot as well.
         self.history = History::new(self.project.clone());
+        self.is_dirty = true;
         if !self.pool.iter().any(|e| e.probing) {
             self.probe_job = JobState::Done;
         }
+    }
+
+    /// Rebuild the Media pool from a loaded project. Existing files are
+    /// fingerprint-checked on worker threads; missing files remain in the
+    /// pool with an explicit Locate action instead of being discarded.
+    pub fn restore_project(
+        &mut self,
+        project: Project,
+        project_path: PathBuf,
+    ) -> Vec<(usize, PathBuf, MediaKind)> {
+        self.project = project;
+        self.project_path = Some(project_path);
+        self.is_dirty = false;
+        self.pool.clear();
+        self.plan = None;
+        self.song_analysis = None;
+        self.pipeline_stage = None;
+        self.pipeline_videos.clear();
+        self.stage_current = None;
+        self.pipeline_job = JobState::Idle;
+        self.export_job = JobState::Idle;
+        self.export_result = None;
+        self.selected_item = None;
+        self.pinned = Arc::new(Mutex::new(HashSet::new()));
+
+        self.song_index = self.project.song_asset_id.and_then(|song_id| {
+            self.project.assets.iter().position(|asset| asset.id == song_id)
+        });
+        self.has_manual_edits = self.project.track_items.iter().any(|group| !group.items.is_empty());
+        self.next_asset_id = self
+            .project
+            .assets
+            .iter()
+            .map(|asset| asset.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+
+        let mut probes = Vec::new();
+        for asset in &self.project.assets {
+            let index = self.pool.len();
+            let path = PathBuf::from(&asset.path_hint);
+            let kind = match asset.kind {
+                AssetKind::Audio => MediaKind::Audio,
+                AssetKind::Video | AssetKind::Image => MediaKind::Video,
+            };
+            let exists = path.is_file();
+            self.pool.push(PoolEntry {
+                path: path.clone(),
+                kind,
+                asset_id: asset.id,
+                probing: exists,
+                probe: None,
+                duration: (asset.duration > Tick::ZERO).then_some(asset.duration),
+                probe_error: (!exists).then(|| "media file is missing; locate the original file".to_string()),
+                intro_trim: asset.intro_trim,
+                outro_trim: asset.outro_trim,
+                stage1: None,
+                stage2: None,
+                stage2_fraction: 0.0,
+            });
+            if exists {
+                probes.push((index, path, kind));
+            }
+        }
+
+        if let Ok(mut pins) = self.pinned.lock() {
+            for item in self.project.track_items.iter().flat_map(|group| group.items.iter()) {
+                pins.insert(item.id);
+            }
+        }
+        self.history = History::new(self.project.clone());
+        self.page = Page::Media;
+        self.probe_job = if probes.is_empty() {
+            JobState::Done
+        } else {
+            JobState::Running {
+                label: "verifying media".to_string(),
+                fraction: 0.0,
+            }
+        };
+        probes
+    }
+
+    pub fn begin_relink_probe(&mut self, index: usize) -> Option<MediaKind> {
+        let entry = self.pool.get_mut(index)?;
+        if entry.probing {
+            return None;
+        }
+        entry.probing = true;
+        entry.probe_error = None;
+        self.probe_job = JobState::Running {
+            label: "verifying media".to_string(),
+            fraction: 0.0,
+        };
+        Some(entry.kind)
+    }
+
+    /// Accept a located file only when its content fingerprint matches the
+    /// asset saved in the project. Paths may change; source identity may not.
+    pub fn handle_relink_result(&mut self, result: RelinkResult) {
+        let Some(entry) = self.pool.get_mut(result.index) else {
+            return;
+        };
+        let asset_id = entry.asset_id;
+        let expected = self
+            .project
+            .assets
+            .iter()
+            .find(|asset| asset.id == asset_id)
+            .map(|asset| asset.fingerprint);
+        let blank = Fingerprint::new(0, 0, 0, 0);
+        let matches = match (expected, result.fingerprint) {
+            (Some(saved), Some(actual)) => saved == blank || saved == actual,
+            _ => false,
+        };
+
+        entry.probing = false;
+        if !matches {
+            entry.probe = None;
+            entry.probe_error = Some(
+                "selected file does not match the saved media fingerprint".to_string(),
+            );
+        } else {
+            let previous_path = entry.path.clone();
+            entry.path = result.path.clone();
+            entry.duration = result.duration.or(entry.duration);
+            entry.probe = result.probe;
+            entry.probe_error = result.error;
+            if let Some(asset) = self.project.assets.iter_mut().find(|asset| asset.id == asset_id) {
+                asset.path_hint = result.path.to_string_lossy().into_owned();
+                if asset.fingerprint == blank {
+                    if let Some(fingerprint) = result.fingerprint {
+                        asset.fingerprint = fingerprint;
+                    }
+                }
+                if let Some(duration) = result.duration {
+                    asset.duration = duration;
+                }
+            }
+            if previous_path != result.path || expected == Some(blank) {
+                self.is_dirty = true;
+                self.history = History::new(self.project.clone());
+            }
+        }
+        if !self.pool.iter().any(|pool_entry| pool_entry.probing) {
+            self.probe_job = JobState::Done;
+        }
+    }
+
+    pub fn save_project_to(&mut self, path: PathBuf) -> Result<(), String> {
+        self.project.save(&path).map_err(|error| error.to_string())?;
+        self.project_path = Some(path);
+        self.is_dirty = false;
+        Ok(())
     }
 
     pub fn video_indices(&self) -> Vec<usize> {
@@ -446,19 +622,29 @@ impl AppState {
     /// Choose which imported audio file is the song. Rejects video
     /// entries and out of range indices.
     pub fn set_song(&mut self, index: usize) -> bool {
-        match self.pool.get(index) {
-            Some(entry) if entry.kind == MediaKind::Audio => {
-                self.song_index = Some(index);
-                true
-            }
-            _ => false,
+        let Some(entry) = self.pool.get(index) else {
+            return false;
+        };
+        if entry.kind != MediaKind::Audio || entry.probing || entry.probe_error.is_some() {
+            return false;
         }
+        if self.has_manual_edits && self.project.song_asset_id.is_some() {
+            return self.song_index == Some(index);
+        }
+        self.song_index = Some(index);
+        self.project.song_asset_id = Some(entry.asset_id);
+        self.history = History::new(self.project.clone());
+        self.is_dirty = true;
+        true
     }
 
     /// Set the intro and outro trims of one video, in seconds,
     /// clamped so the pair never eats the whole file once its
     /// duration is known.
     pub fn set_trims_seconds(&mut self, index: usize, intro_s: f64, outro_s: f64) {
+        if self.has_manual_edits {
+            return;
+        }
         let Some(entry) = self.pool.get_mut(index) else {
             return;
         };
@@ -476,6 +662,13 @@ impl AppState {
         }
         entry.intro_trim = intro;
         entry.outro_trim = outro;
+        let asset_id = entry.asset_id;
+        if let Some(asset) = self.project.assets.iter_mut().find(|asset| asset.id == asset_id) {
+            asset.intro_trim = intro;
+            asset.outro_trim = outro;
+        }
+        self.history = History::new(self.project.clone());
+        self.is_dirty = true;
     }
 
     // ---------------------------------------------------------- pinning
@@ -495,8 +688,19 @@ impl AppState {
     // --------------------------------------------------------- pipeline
 
     pub fn can_begin_analysis(&self) -> bool {
-        self.song_index.is_some()
-            && !self.video_indices().is_empty()
+        let song_ready = self
+            .song_index
+            .and_then(|index| self.pool.get(index))
+            .map(|entry| !entry.probing && entry.probe_error.is_none() && entry.duration.map(|d| d > Tick::ZERO).unwrap_or(false))
+            .unwrap_or(false);
+        let video_ready = self.video_indices().iter().any(|index| {
+            self.pool
+                .get(*index)
+                .map(|entry| !entry.probing && entry.probe_error.is_none() && entry.duration.map(|d| d > Tick::ZERO).unwrap_or(false))
+                .unwrap_or(false)
+        });
+        song_ready
+            && video_ready
             && !self.pipeline_job.is_running()
             && !self.has_manual_edits
     }
@@ -512,15 +716,16 @@ impl AppState {
         let videos: Vec<PipelineVideo> = self
             .video_indices()
             .into_iter()
-            .map(|index| {
-                let entry = &self.pool[index];
-                PipelineVideo {
-                    index,
-                    asset_id: entry.asset_id,
-                    path: entry.path.clone(),
-                    intro_trim: entry.intro_trim,
-                    outro_trim: entry.outro_trim,
-                }
+            .filter_map(|index| {
+                let entry = self.pool.get(index)?;
+                (!entry.probing && entry.probe_error.is_none() && entry.duration.map(|d| d > Tick::ZERO).unwrap_or(false))
+                    .then(|| PipelineVideo {
+                        index,
+                        asset_id: entry.asset_id,
+                        path: entry.path.clone(),
+                        intro_trim: entry.intro_trim,
+                        outro_trim: entry.outro_trim,
+                    })
             })
             .collect();
         self.pipeline_videos = videos.iter().map(|v| v.index).collect();
@@ -764,6 +969,7 @@ impl AppState {
         match plan.apply(base) {
             Ok(project) => {
                 self.project = project;
+                self.is_dirty = true;
                 // The newest generated plan is the baseline for future edits.
                 self.history = History::new(self.project.clone());
                 self.has_manual_edits = false;
@@ -821,6 +1027,7 @@ impl AppState {
         self.history.apply(command).map_err(|error| error.to_string())?;
         self.project = self.history.project().clone();
         self.has_manual_edits = true;
+        self.is_dirty = true;
 
         match command {
             Command::InsertItem { item, .. } => self.pin_item(item.id),
@@ -860,6 +1067,7 @@ impl AppState {
             self.selected_item = None;
         }
         self.has_manual_edits = self.history.can_undo();
+        self.is_dirty = true;
         true
     }
 
@@ -872,7 +1080,16 @@ impl AppState {
             self.selected_item = None;
         }
         self.has_manual_edits = true;
+        self.is_dirty = true;
         true
+    }
+
+    pub fn asset_path(&self, asset_id: AssetId) -> Option<&std::path::Path> {
+        self.project
+            .assets
+            .iter()
+            .find(|asset| asset.id == asset_id)
+            .map(|asset| std::path::Path::new(&asset.path_hint))
     }
 
     pub fn asset_duration(&self, asset_id: AssetId) -> Option<Tick> {
