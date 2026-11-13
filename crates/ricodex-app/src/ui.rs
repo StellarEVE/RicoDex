@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use egui::{Color32, CornerRadius, RichText, Stroke};
 
-use ricodex_core::Tick;
+use ricodex_core::{Command, Tick};
 use ricodex_engine::ClipState;
 
 use crate::jobs;
@@ -200,6 +200,25 @@ impl EditorApp {
 impl eframe::App for EditorApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_channels();
+
+        // Standard history shortcuts are active on the Edit page only.
+        if self.state.page == Page::Edit && !self.state.pipeline_running() {
+            let (undo, redo) = ctx.input(|input| {
+                let command = input.modifiers.command;
+                (
+                    command && input.key_pressed(egui::Key::Z) && !input.modifiers.shift,
+                    (command && input.key_pressed(egui::Key::Y))
+                        || (command
+                            && input.modifiers.shift
+                            && input.key_pressed(egui::Key::Z)),
+                )
+            });
+            if undo {
+                self.state.undo_edit();
+            } else if redo {
+                self.state.redo_edit();
+            }
+        }
 
         // Automated run hook: with RICODEX_AUTOSTART set, begin the
         // pipeline as soon as probing finishes, marking the first
@@ -643,6 +662,31 @@ impl EditorApp {
     fn edit_page(&mut self, ui: &mut egui::Ui) {
         ui.heading("Edit");
         ui.add_space(4.0);
+
+        let pipeline_running = self.state.pipeline_running();
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("History").strong());
+            if ui
+                .add_enabled(!pipeline_running && self.state.can_undo_edit(), egui::Button::new("Undo"))
+                .clicked()
+            {
+                self.state.undo_edit();
+            }
+            if ui
+                .add_enabled(!pipeline_running && self.state.can_redo_edit(), egui::Button::new("Redo"))
+                .clicked()
+            {
+                self.state.redo_edit();
+            }
+            if pipeline_running {
+                ui.label(
+                    RichText::new("Editing is paused while the cut is being generated.")
+                        .color(SILVER_DIM)
+                        .small(),
+                );
+            }
+        });
+
         self.timeline_strip(ui, 110.0);
         ui.separator();
         let selected = self
@@ -656,6 +700,14 @@ impl EditorApp {
             });
         match selected {
             Some(clip) => {
+                let mut start_seconds = clip.start.to_seconds();
+                let mut duration_seconds = clip.duration.to_seconds();
+                let mut source_in_seconds = clip.source_in.to_seconds();
+                let mut edit_changed = false;
+                let mut split_requested = false;
+                let mut delete_requested = false;
+                let mut pin_requested = false;
+
                 egui::Frame::new()
                     .fill(SURFACE)
                     .corner_radius(CornerRadius::same(4))
@@ -664,12 +716,6 @@ impl EditorApp {
                         ui.label(RichText::new("Inspector").strong());
                         ui.add_space(4.0);
                         ui.label(format!("source: {}", self.state.asset_name(clip.asset_id)));
-                        ui.label(format!("start: {:.2} s", clip.start.to_seconds()));
-                        ui.label(format!("duration: {:.2} s", clip.duration.to_seconds()));
-                        ui.label(format!(
-                            "source in: {:.2} s",
-                            clip.source_in.to_seconds()
-                        ));
                         ui.label(format!(
                             "state: {}",
                             match clip.state {
@@ -677,31 +723,118 @@ impl EditorApp {
                                 ClipState::Settled => "settled",
                             }
                         ));
-                        ui.add_space(4.0);
-                        let pinned = self.state.is_pinned(clip.item_id);
-                        if ui
-                            .button(if pinned { "Unpin clip" } else { "Pin clip" })
-                            .clicked()
-                        {
-                            self.state.toggle_pin(clip.item_id);
-                        }
-                        if pinned {
+
+                        ui.horizontal(|ui| {
+                            ui.label("Timeline start");
+                            edit_changed |= ui
+                                .add(
+                                    egui::DragValue::new(&mut start_seconds)
+                                        .speed(0.05)
+                                        .fixed_decimals(2)
+                                        .suffix(" s"),
+                                )
+                                .changed();
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Duration");
+                            edit_changed |= ui
+                                .add(
+                                    egui::DragValue::new(&mut duration_seconds)
+                                        .speed(0.05)
+                                        .range(0.01..=36000.0)
+                                        .fixed_decimals(2)
+                                        .suffix(" s"),
+                                )
+                                .changed();
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Source in");
+                            edit_changed |= ui
+                                .add(
+                                    egui::DragValue::new(&mut source_in_seconds)
+                                        .speed(0.05)
+                                        .range(0.0..=36000.0)
+                                        .fixed_decimals(2)
+                                        .suffix(" s"),
+                                )
+                                .changed();
+                        });
+
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            delete_requested = ui
+                                .add_enabled(!pipeline_running, egui::Button::new("Delete clip"))
+                                .clicked();
+                            split_requested = ui
+                                .add_enabled(
+                                    !pipeline_running && clip.duration > Tick::from_seconds(0.02),
+                                    egui::Button::new("Split at midpoint"),
+                                )
+                                .clicked();
+                            let pinned = self.state.is_pinned(clip.item_id);
+                            pin_requested = ui
+                                .button(if pinned { "Unpin clip" } else { "Pin clip" })
+                                .clicked();
+                        });
+                        if self.state.is_pinned(clip.item_id) {
                             ui.label(
-                                RichText::new("pinned clips are never replaced by refinement")
+                                RichText::new("pinned clips are protected from planner refinement")
                                     .color(SILVER_DIM)
                                     .small(),
                             );
                         }
                     });
+
+                if pin_requested {
+                    self.state.toggle_pin(clip.item_id);
+                }
+
+                let command = if delete_requested {
+                    Some(Command::RemoveItem { item_id: clip.item_id })
+                } else if split_requested {
+                    self.state.next_item_id().map(|new_item_id| Command::SplitItem {
+                        item_id: clip.item_id,
+                        at: clip.start + Tick::from_ticks(clip.duration.as_ticks() / 2),
+                        new_item_id,
+                    })
+                } else if edit_changed {
+                    Some(Command::TrimItem {
+                        item_id: clip.item_id,
+                        new_start: Some(Tick::from_seconds(start_seconds.max(0.0))),
+                        new_source_in: Some(Tick::from_seconds(source_in_seconds.max(0.0))),
+                        new_duration: Some(Tick::from_seconds(duration_seconds.max(0.01))),
+                    })
+                } else {
+                    None
+                };
+
+                if let Some(command) = command {
+                    let split_id = match &command {
+                        Command::SplitItem { new_item_id, .. } => Some(*new_item_id),
+                        _ => None,
+                    };
+                    let removes_item = matches!(&command, Command::RemoveItem { .. });
+                    match self.state.apply_edit(&command) {
+                        Ok(()) => {
+                            self.state.selected_item = split_id.or_else(|| {
+                                if removes_item { None } else { Some(clip.item_id) }
+                            });
+                        }
+                        Err(error) => self.state.notice = Some(error),
+                    }
+                }
             }
             None => {
                 ui.label(
-                    RichText::new(
-                        "Select a clip on the timeline. Full editing tools arrive in a later slice.",
-                    )
-                    .color(SILVER_DIM),
+                    RichText::new("Select a clip on the timeline to inspect and edit it.")
+                        .color(SILVER_DIM),
                 );
             }
+        }
+
+        if let Some(notice) = &self.state.notice {
+            ui.add_space(4.0);
+            ui.label(RichText::new(notice).color(WARN));
         }
     }
 }
