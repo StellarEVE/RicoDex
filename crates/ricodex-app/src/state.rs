@@ -1087,6 +1087,74 @@ mod tests {
     }
 
     #[test]
+    fn app_edits_use_core_history_and_refresh_timeline_views() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+            10,
+            asset_id,
+            Tick::ZERO,
+            Tick::from_seconds(8.0),
+            Tick::ZERO,
+        ));
+        state.history = History::new(state.project.clone());
+        state.selected_item = Some(10);
+
+        state
+            .apply_edit(&Command::SplitItem {
+                item_id: 10,
+                at: Tick::from_seconds(4.0),
+                new_item_id: 11,
+            })
+            .unwrap();
+
+        assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 2);
+        assert_eq!(state.timeline_clips().len(), 2);
+        assert_eq!(state.selected_item, Some(10));
+        assert!(state.is_pinned(10));
+        assert!(state.is_pinned(11));
+
+        assert!(state.undo_edit());
+        assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 1);
+        assert_eq!(state.timeline_clips().len(), 1);
+        assert_eq!(state.selected_item, Some(10));
+
+        assert!(state.redo_edit());
+        assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 2);
+        assert_eq!(state.timeline_clips().len(), 2);
+    }
+
+    #[test]
+    fn app_rejects_edits_while_analysis_is_running() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+            10,
+            asset_id,
+            Tick::ZERO,
+            Tick::from_seconds(4.0),
+            Tick::ZERO,
+        ));
+        state.history = History::new(state.project.clone());
+        state.pipeline_job = JobState::Running {
+            label: "analysing".to_string(),
+            fraction: 0.5,
+        };
+
+        let before = state.project.clone();
+        let result = state.apply_edit(&Command::TrimItem {
+            item_id: 10,
+            new_start: None,
+            new_source_in: Some(Tick::from_seconds(1.0)),
+            new_duration: None,
+        });
+        assert!(result.is_err());
+        assert_eq!(state.project, before);
+    }
+
+    #[test]
     fn import_registers_assets_and_dedupes() {
         let mut state = AppState::new();
         let a = state.import_path(PathBuf::from("/tmp/a.mp4"));
