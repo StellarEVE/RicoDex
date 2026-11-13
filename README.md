@@ -122,15 +122,15 @@ $env:RICODEX_RENDERER = "wgpu"
 cargo run -p ricodex-app
 ```
 
-The release desktop executable is named `ricodex-app.exe). The CLI executable is named `ricodex-cli.exe) and is currently a version-printing stub.
+The release desktop executable is named `ricodex-app.exe`. The CLI executable is named `ricodex-cli.exe` and is currently a version-printing stub.
 
 ## Windows CI and packages
 
-The [Windows CI workflow](.github/workflows/ci.yml) runs for pull requests targeting `main), pushes to `main), and manual workflow dispatches. It:
+The [Windows CI workflow](.github/workflows/ci.yml) runs for pull requests targeting `main`, pushes to `main`, and manual workflow dispatches. It:
 
 1. Downloads the FFmpeg LGPL shared development build and configures the Rust bindings.
 2. Downloads a separate GPL-enabled FFmpeg executable only to generate H.264 test fixtures. This test-only executable is not the FFmpeg runtime packaged with RicoDex.
-3. Audits test configuration and runs `cargo test --workspace).
+3. Audits test configuration and runs `cargo test --workspace`.
 4. Builds the release workspace.
 5. Stages the desktop app, CLI executable, FFmpeg runtime DLLs, Microsoft Visual C++ Redistributable, and notices.
 6. Produces a portable ZIP and an Inno Setup installer as workflow artifacts.
