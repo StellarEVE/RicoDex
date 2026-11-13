@@ -9,8 +9,9 @@
 //! so the output runs item A plus item B minus the transition
 //! duration, with the incoming clip starting under the outgoing
 //! one. The request's effect stack applies to every frame. Audio
-//! is out of scope: the output is video only. Wider projects
-//! (more tracks, more items, per clip effects) are later slices
+//! remains out of scope for this two-clip transition renderer; the
+//! sequential application export has a separate selected-song AAC path.
+//! Wider projects (more tracks, more items, per clip effects) are later slices
 //! building on this path, not changes to it.
 //!
 //! Frames are decoded through ricodex-platform, composited through
@@ -432,9 +433,11 @@ pub fn render_sequential_with_audio(
         });
     }
 
+    // Audio must match the output frame schedule, not the unrounded
+    // tick duration: the encoded video duration is total_frames / fps.
     let total_audio_samples = if audio.is_some() {
-        ((total_duration.as_ticks() as i128 * OUTPUT_AUDIO_RATE as i128)
-            / TICKS_PER_SECOND as i128)
+        ((total_frames as i128 * OUTPUT_AUDIO_RATE as i128 * fps_den as i128)
+            / fps_num as i128)
             .max(0) as usize
     } else {
         0
