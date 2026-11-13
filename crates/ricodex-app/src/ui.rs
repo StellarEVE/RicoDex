@@ -276,6 +276,17 @@ impl EditorApp {
         if open {
             self.open_project_dialog();
         }
+        if let Some(notice) = &self.state.notice {
+            ui.label(
+                RichText::new(notice)
+                    .color(if notice.contains("failed") || notice.contains("could not") {
+                        WARN
+                    } else {
+                        SILVER_DIM
+                    })
+                    .small(),
+            );
+        }
     }
 
     fn drain_channels(&mut self) {
