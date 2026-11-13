@@ -41,9 +41,11 @@ Run this checklist against the latest portable ZIP or installer from GitHub Acti
 
 ## Export
 - [ ] Export MP4 and confirm progress completes and the file exists.
-- [ ] Open the output in a media player and check clip order.
+- [ ] Open the output in a media player and check clip order and soundtrack playback.
+- [ ] Confirm the selected song is audible as stereo AAC and starts at output time zero.
 - [ ] Verify no frames come from before an intro trim or after an outro trim.
-- [ ] Compare output duration with the contiguous timeline duration.
+- [ ] Compare audio and video duration with the contiguous timeline duration.
+- [ ] Repeat without a selected song and confirm the documented video-only behaviour.
 
 ## Known scope limits
 

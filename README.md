@@ -51,7 +51,6 @@ These are experimental CI validation packages, not approved public redistributio
 - Complete product breakdown: docs/PLAN.md
 - Implementation roadmap and current gaps: docs/ROADMAP.md
 - Windows manual acceptance checklist: docs/WINDOWS_SMOKE_TEST.md
-- Windows manual acceptance checklist: docs/SMOKE_TEST.md
 - Licensing and binary distribution: docs/LICENSING.md
 - Release notes: RELEASE_NOTES.md
 

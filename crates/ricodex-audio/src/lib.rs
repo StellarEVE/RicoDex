@@ -217,9 +217,9 @@ impl DecodedStereoAudio {
 /// does not yet expose a configurable surround downmix.
 pub fn decode_stereo_file(path: &Path) -> Result<DecodedStereoAudio> {
     use symphonia::core::audio::SampleBuffer;
-    use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+    use symphonia::core::codecs::DecoderOptions;
     use symphonia::core::errors::Error as SymError;
-    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::formats::{FormatOptions, TrackType};
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
@@ -238,14 +238,12 @@ pub fn decode_stereo_file(path: &Path) -> Result<DecodedStereoAudio> {
         .map_err(|e| AudioError::Message(format!("cannot probe {}: {e}", path.display())))?;
     let mut format = probed.format;
 
+    // Container metadata does not always expose every audio parameter
+    // before decoding (AAC in MP4 can omit the channel layout here).
+    // Ask the demuxer for its audio track instead of requiring optional
+    // sample-rate and channel fields to be populated up front.
     let track = format
-        .tracks()
-        .iter()
-        .find(|t| {
-            t.codec_params.codec != CODEC_TYPE_NULL
-                && t.codec_params.sample_rate.is_some()
-                && t.codec_params.channels.is_some()
-        })
+        .default_track(TrackType::Audio)
         .ok_or_else(|| AudioError::Message(format!("no audio track in {}", path.display())))?
         .clone();
 
