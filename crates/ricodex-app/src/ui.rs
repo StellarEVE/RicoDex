@@ -382,7 +382,11 @@ impl EditorApp {
         ui.horizontal(|ui| {
             ui.heading("Media");
             ui.add_space(12.0);
-            if ui.button("Import files").clicked() {
+            let can_import = !self.state.has_manual_edits && !self.state.pipeline_running();
+            if ui
+                .add_enabled(can_import, egui::Button::new("Import files"))
+                .clicked()
+            {
                 let dialog = rfd::FileDialog::new().add_filter(
                     "Media",
                     &[
@@ -404,6 +408,15 @@ impl EditorApp {
                 .small(),
             );
         });
+        if self.state.has_manual_edits {
+            ui.label(
+                RichText::new(
+                    "Media import is paused until timeline edits are undone; the current project model cannot merge new assets into an edited cut yet.",
+                )
+                .color(SILVER_DIM)
+                .small(),
+            );
+        }
         ui.separator();
 
         let mut set_song_to: Option<usize> = None;
