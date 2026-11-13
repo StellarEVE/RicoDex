@@ -316,73 +316,6 @@ impl EditorApp {
                 self.state.handle_export_msg(msg);
             }
         }
-
-        if allow_reorder {
-            if let Some(dragged_item_id) = self.dragging_item {
-                if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
-                    if rect.contains(pointer) {
-                        let before_item_id = clips
-                            .iter()
-                            .filter(|clip| clip.item_id != dragged_item_id)
-                            .find(|clip| {
-                                let midpoint = rect.left()
-                                    + ((clip.start.to_seconds()
-                                        + clip.duration.to_seconds() * 0.5)
-                                        / total_s) as f32
-                                        * rect.width();
-                                pointer.x < midpoint
-                            })
-                            .map(|clip| clip.item_id);
-                        let marker_x = before_item_id
-                            .and_then(|target| clips.iter().find(|clip| clip.item_id == target))
-                            .map(|target| {
-                                rect.left()
-                                    + (target.start.to_seconds() / total_s) as f32
-                                        * rect.width()
-                            })
-                            .unwrap_or(rect.right() - 2.0);
-                        painter.line_segment(
-                            [
-                                egui::pos2(marker_x, rect.top() + 2.0),
-                                egui::pos2(marker_x, rect.bottom() - 2.0),
-                            ],
-                            Stroke::new(2.0, TEAL),
-                        );
-                    }
-                }
-            }
-        }
-
-        if let Some((dragged_item_id, pointer)) = completed_drag {
-            if allow_reorder && rect.contains(pointer) {
-                let before_item_id = clips
-                    .iter()
-                    .filter(|clip| clip.item_id != dragged_item_id)
-                    .find(|clip| {
-                        let midpoint = rect.left()
-                            + ((clip.start.to_seconds()
-                                + clip.duration.to_seconds() * 0.5)
-                                / total_s) as f32
-                                * rect.width();
-                        pointer.x < midpoint
-                    })
-                    .map(|clip| clip.item_id);
-                let current_before = clips
-                    .iter()
-                    .position(|clip| clip.item_id == dragged_item_id)
-                    .and_then(|position| clips.get(position + 1))
-                    .map(|clip| clip.item_id);
-                if before_item_id != current_before {
-                    match self.state.apply_edit(&Command::ReorderItem {
-                        item_id: dragged_item_id,
-                        before_item_id,
-                    }) {
-                        Ok(()) => self.state.selected_item = Some(dragged_item_id),
-                        Err(error) => self.state.notice = Some(error),
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1327,5 +1260,72 @@ impl EditorApp {
                 }
             }
         }
+        if allow_reorder {
+            if let Some(dragged_item_id) = self.dragging_item {
+                if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
+                    if rect.contains(pointer) {
+                        let before_item_id = clips
+                            .iter()
+                            .filter(|clip| clip.item_id != dragged_item_id)
+                            .find(|clip| {
+                                let midpoint = rect.left()
+                                    + ((clip.start.to_seconds()
+                                        + clip.duration.to_seconds() * 0.5)
+                                        / total_s) as f32
+                                        * rect.width();
+                                pointer.x < midpoint
+                            })
+                            .map(|clip| clip.item_id);
+                        let marker_x = before_item_id
+                            .and_then(|target| clips.iter().find(|clip| clip.item_id == target))
+                            .map(|target| {
+                                rect.left()
+                                    + (target.start.to_seconds() / total_s) as f32
+                                        * rect.width()
+                            })
+                            .unwrap_or(rect.right() - 2.0);
+                        painter.line_segment(
+                            [
+                                egui::pos2(marker_x, rect.top() + 2.0),
+                                egui::pos2(marker_x, rect.bottom() - 2.0),
+                            ],
+                            Stroke::new(2.0, TEAL),
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some((dragged_item_id, pointer)) = completed_drag {
+            if allow_reorder && rect.contains(pointer) {
+                let before_item_id = clips
+                    .iter()
+                    .filter(|clip| clip.item_id != dragged_item_id)
+                    .find(|clip| {
+                        let midpoint = rect.left()
+                            + ((clip.start.to_seconds()
+                                + clip.duration.to_seconds() * 0.5)
+                                / total_s) as f32
+                                * rect.width();
+                        pointer.x < midpoint
+                    })
+                    .map(|clip| clip.item_id);
+                let current_before = clips
+                    .iter()
+                    .position(|clip| clip.item_id == dragged_item_id)
+                    .and_then(|position| clips.get(position + 1))
+                    .map(|clip| clip.item_id);
+                if before_item_id != current_before {
+                    match self.state.apply_edit(&Command::ReorderItem {
+                        item_id: dragged_item_id,
+                        before_item_id,
+                    }) {
+                        Ok(()) => self.state.selected_item = Some(dragged_item_id),
+                        Err(error) => self.state.notice = Some(error),
+                    }
+                }
+            }
+        }
+
     }
 }

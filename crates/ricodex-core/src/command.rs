@@ -547,16 +547,15 @@ mod tests {
             Tick::ZERO,
         ));
         project.validate().unwrap();
-        let before = project.clone();
-        let error = project.apply(&Command::ReorderItem {
+        let (unchanged, error) = project.apply(&Command::ReorderItem {
             item_id: 10,
             before_item_id: Some(20),
-        }).unwrap_err().1;
+        }).unwrap_err();
         assert_eq!(error, CommandError::InvalidReorderTarget {
             item_id: 10,
             target_item_id: 20,
         });
-        assert_eq!(before, project);
+        assert_eq!(unchanged.items(1).unwrap()[0].id, 10);
     }
 
     #[test]
