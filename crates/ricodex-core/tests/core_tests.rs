@@ -10,6 +10,8 @@ fn sample_asset(id: u64) -> Asset {
         path_hint: format!("/media/clip{id}.mp4"),
         kind: AssetKind::Video,
         duration: Tick::from_seconds(60.0),
+        intro_trim: Tick::ZERO,
+        outro_trim: Tick::ZERO,
     }
 }
 
