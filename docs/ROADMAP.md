@@ -25,9 +25,9 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 
 The foundation is real, but several user-facing workflows remain incomplete:
 
-- The Edit page is not yet a complete timeline editor. The Core command/history model exists, but its full integration into the UI is work in progress.
+- The Edit page now supports source/duration trimming, splitting, ripple deletion, drag-to-reorder, pinning and undo/redo through Core commands and History. It remains a deliberately small single-track editing surface.
 - The app export path is a sequential contiguous video render with hard cuts. Full-timeline rendering, gaps, transitions and audio mixing are not integrated into the app export workflow.
-- Core JSON persistence exists, but a complete application-level save/reopen/media-relink workflow remains to be completed.
+- Application-level Save, Save As and Open are integrated with versioned Core JSON persistence. Media relinking verifies saved fingerprints; a project without a fingerprint can enroll one only from its original saved path, not from an arbitrary moved replacement. The complete Windows interaction workflow still needs a manual smoke test.
 - Render scheduling and cache foundations need end-to-end integration and invalidation tests.
 - Windows hardware behaviour must be verified on actual machines. The application defaults to OpenGL for startup compatibility; the wgpu renderer is an explicit opt-in until broader Windows validation exists.
 - FFmpeg and bundled transitive-library licensing must be reviewed before public binary distribution.
@@ -52,7 +52,7 @@ The foundation is real, but several user-facing workflows remain incomplete:
 **Goal:** users can refine and preserve a generated cut without bypassing the Core model.
 
 - Route every edit through ricodex-core commands and History.
-- Current Edit-page controls support source-in/duration trimming, midpoint splitting, ripple deletion, pinning, undo and redo. Drag/reorder movement remains open.
+- Current Edit-page controls support source-in/duration trimming, midpoint splitting, ripple deletion, drag/reorder movement, pinning, undo and redo. Reordering compacts the video track into a contiguous cut to match the current sequential hard-cut exporter; it does not provide freeform gaps or transition editing.
 - Preserve integer Tick values in the model; convert to seconds only at UI boundaries.
 - Make the current project model the timeline's source of truth after every accepted command.
 - Prevent invalid edits from partially mutating project state.
@@ -60,10 +60,10 @@ The foundation is real, but several user-facing workflows remain incomplete:
 - Provide application-level Save, Save As and Open controls backed by Core's atomic JSON persistence and backup file.
 - Persist selected-song identity and per-asset intro/outro trims in project schema 2; migrate schema-1 projects with safe defaults and infer a selected song only when exactly one audio asset exists.
 - Rebuild the Media pool when reopening a project and verify every available source against its saved content fingerprint.
-- Provide a Locate flow for missing/moved files. Accept a replacement path only when its fingerprint matches the saved asset.
+- Provide a Locate flow for missing/moved files. Accept a moved replacement only when its fingerprint matches the saved asset. When no fingerprint was saved, allow fingerprint enrollment from the original stored path only; never silently adopt a different file.
 - Add acceptance tests for schema migration, metadata round trips, editing history and fingerprint-matched relinking.
 
-**Exit gate:** a user can generate a cut, use the currently supported trim/split/delete operations, undo/redo, save and reopen it with song selection and source trims intact, and relink moved media without accidentally substituting different footage.
+**Exit gate:** a user can generate a cut, trim/split/delete/reorder clips, undo/redo, save and reopen it with song selection and source trims intact, and recover moved media without substituting different footage. The actual desktop workflow must be smoke-tested on Windows; CI alone is not sufficient.
 
 ### Phase 2: One complete preview and export pipeline
 
