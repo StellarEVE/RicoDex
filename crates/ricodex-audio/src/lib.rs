@@ -217,7 +217,7 @@ impl DecodedStereoAudio {
 /// does not yet expose a configurable surround downmix.
 pub fn decode_stereo_file(path: &Path) -> Result<DecodedStereoAudio> {
     use symphonia::core::audio::SampleBuffer;
-    use symphonia::core::codecs::DecoderOptions;
+    use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
     use symphonia::core::errors::Error as SymError;
     use symphonia::core::formats::FormatOptions;
     use symphonia::core::io::MediaSourceStream;
