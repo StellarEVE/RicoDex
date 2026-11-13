@@ -17,7 +17,8 @@ use std::time::Instant;
 
 use ricodex_audio::SongAnalysis;
 use ricodex_core::{
-    Asset, AssetId, AssetKind, Fingerprint, ItemId, Project, Tick, Track, TrackKind,
+    Asset, AssetId, AssetKind, Command, Fingerprint, History, ItemId, Project, Tick, Track,
+    TrackKind,
 };
 use ricodex_engine::{ClipState, Plan, PlannerSettings, SourceInfo};
 use ricodex_media::{MediaProbe, SourceAnalysis};
@@ -293,6 +294,8 @@ pub fn eta_seconds(fraction: f32, elapsed_s: f64) -> Option<f64> {
 
 pub struct AppState {
     pub project: Project,
+    /// Core command history shared by every editing control.
+    pub history: History,
     pub pool: Vec<PoolEntry>,
     pub page: Page,
     pub song_index: Option<usize>,
@@ -325,8 +328,10 @@ impl AppState {
     pub fn new() -> AppState {
         let mut project = Project::new();
         project.add_track(Track::new(VIDEO_TRACK_ID, TrackKind::Video, "V1"));
+        let history = History::new(project.clone());
         AppState {
             project,
+            history,
             pool: Vec::new(),
             page: Page::Media,
             song_index: None,
@@ -387,6 +392,8 @@ impl AppState {
             stage2: None,
             stage2_fraction: 0.0,
         });
+        // Import changes project metadata outside the edit-command history.
+        self.history = History::new(self.project.clone());
         if !self.probe_job.is_running() {
             self.probe_job = JobState::Running {
                 label: "probing".to_string(),
@@ -415,6 +422,8 @@ impl AppState {
                 asset.duration = duration;
             }
         }
+        // Probe metadata is part of the project snapshot as well.
+        self.history = History::new(self.project.clone());
         if !self.pool.iter().any(|e| e.probing) {
             self.probe_job = JobState::Done;
         }
@@ -749,6 +758,8 @@ impl AppState {
         match plan.apply(base) {
             Ok(project) => {
                 self.project = project;
+                // The newest generated plan is the baseline for future edits.
+                self.history = History::new(self.project.clone());
                 self.plan = Some(plan);
                 if let Some(selected) = self.selected_item {
                     if self.project.item(selected).is_none() {
@@ -764,38 +775,108 @@ impl AppState {
 
     // ------------------------------------------------------------ clips
 
-    /// The clips of the current plan, in timeline order.
+    /// The current project clips, in timeline order. The project is the
+    /// source of truth after user edits; planner state only decorates clips
+    /// that still correspond to generated items.
     pub fn timeline_clips(&self) -> Vec<PlannedClipView> {
-        match &self.plan {
-            Some(plan) => plan
-                .clips
-                .iter()
-                .map(|clip| PlannedClipView {
-                    item_id: clip.item_id,
-                    asset_id: clip.asset_id,
-                    start: clip.start,
-                    duration: clip.duration,
-                    source_in: clip.source_in,
-                    state: clip.state,
-                })
-                .collect(),
-            None => self
-                .project
-                .items(VIDEO_TRACK_ID)
-                .map(|items| {
-                    items
-                        .iter()
-                        .map(|item| PlannedClipView {
+        self.project
+            .items(VIDEO_TRACK_ID)
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| {
+                        let state = self
+                            .plan
+                            .as_ref()
+                            .and_then(|plan| plan.clips.iter().find(|clip| clip.item_id == item.id))
+                            .map(|clip| clip.state)
+                            .unwrap_or(ClipState::Settled);
+                        PlannedClipView {
                             item_id: item.id,
                             asset_id: item.asset_id,
                             start: item.start,
                             duration: item.duration,
                             source_in: item.source_in,
-                            state: ClipState::Settled,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+                            state,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Apply a UI edit through the shared Core command and history path.
+    /// Core validates the candidate before the project snapshot is replaced.
+    pub fn apply_edit(&mut self, command: &Command) -> Result<(), String> {
+        if self.pipeline_running() {
+            return Err("editing is disabled while analysis is running".to_string());
+        }
+        self.history.apply(command).map_err(|error| error.to_string())?;
+        self.project = self.history.project().clone();
+
+        match command {
+            Command::InsertItem { item, .. } => self.pin_item(item.id),
+            Command::SplitItem { item_id, new_item_id, .. } => {
+                self.pin_item(*item_id);
+                self.pin_item(*new_item_id);
+            }
+            Command::RemoveItem { item_id } => {
+                if self.selected_item == Some(*item_id) {
+                    self.selected_item = None;
+                }
+            }
+            Command::MoveItem { item_id, .. }
+            | Command::TrimItem { item_id, .. }
+            | Command::SetItemEnabled { item_id, .. } => self.pin_item(*item_id),
+            Command::SetTrackMuted { .. } | Command::SetTrackLocked { .. } => {}
+        }
+        self.notice = None;
+        Ok(())
+    }
+
+    pub fn can_undo_edit(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    pub fn can_redo_edit(&self) -> bool {
+        self.history.can_redo()
+    }
+
+    pub fn undo_edit(&mut self) -> bool {
+        if self.pipeline_running() || !self.history.undo() {
+            return false;
+        }
+        self.project = self.history.project().clone();
+        if self.selected_item.map(|id| self.project.item(id).is_none()).unwrap_or(false) {
+            self.selected_item = None;
+        }
+        true
+    }
+
+    pub fn redo_edit(&mut self) -> bool {
+        if self.pipeline_running() || !self.history.redo() {
+            return false;
+        }
+        self.project = self.history.project().clone();
+        if self.selected_item.map(|id| self.project.item(id).is_none()).unwrap_or(false) {
+            self.selected_item = None;
+        }
+        true
+    }
+
+    pub fn next_item_id(&self) -> Option<ItemId> {
+        self.project
+            .track_items
+            .iter()
+            .flat_map(|group| group.items.iter().map(|item| item.id))
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+    }
+
+    fn pin_item(&mut self, item_id: ItemId) {
+        if let Ok(mut pinned) = self.pinned.lock() {
+            pinned.insert(item_id);
         }
     }
 
