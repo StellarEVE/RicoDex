@@ -1396,6 +1396,108 @@ mod tests {
     }
 
     #[test]
+    fn save_restore_preserves_song_timeline_and_source_trims() {
+        let mut state = state_with_media();
+        let audio_index = state
+            .pool
+            .iter()
+            .position(|entry| entry.kind == MediaKind::Audio)
+            .unwrap();
+        assert!(state.set_song(audio_index));
+
+        let video_index = state.video_indices()[0];
+        let video_asset_id = state.pool[video_index].asset_id;
+        state.set_trims_seconds(video_index, 1.25, 2.0);
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+            42,
+            video_asset_id,
+            Tick::ZERO,
+            Tick::from_seconds(5.0),
+            Tick::from_seconds(1.0),
+        ));
+
+        let path = std::env::temp_dir().join(format!(
+            "ricodex-app-project-{}.rdx",
+            std::process::id()
+        ));
+        state.save_project_to(path.clone()).unwrap();
+        assert!(!state.is_dirty);
+
+        let loaded = Project::load(&path).unwrap();
+        assert_eq!(loaded.song_asset_id, Some(state.pool[audio_index].asset_id));
+        assert_eq!(loaded.items(VIDEO_TRACK_ID).unwrap().len(), 1);
+        assert_eq!(loaded.assets.iter().find(|asset| asset.id == video_asset_id).unwrap().intro_trim,
+                   Tick::from_seconds(1.25));
+        assert_eq!(loaded.assets.iter().find(|asset| asset.id == video_asset_id).unwrap().outro_trim,
+                   Tick::from_seconds(2.0));
+
+        let mut restored = AppState::new();
+        let probes = restored.restore_project(loaded, path.clone());
+        assert!(probes.is_empty(), "the test fixtures deliberately reference missing media paths");
+        assert_eq!(restored.song_index, Some(audio_index));
+        assert_eq!(restored.timeline_clips().len(), 1);
+        assert!(restored.has_manual_edits);
+        assert!(restored.is_pinned(42));
+        assert!(restored.pool.iter().all(|entry| entry.probe_error.is_some()));
+        assert!(!restored.can_begin_analysis());
+        assert_eq!(restored.project_path, Some(path.clone()));
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn relinking_requires_the_saved_content_fingerprint() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        let expected = Fingerprint::new(100, 1, 2, 3);
+        state
+            .project
+            .assets
+            .iter_mut()
+            .find(|asset| asset.id == asset_id)
+            .unwrap()
+            .fingerprint = expected;
+        state.history = History::new(state.project.clone());
+
+        let original_path = state.pool[video_index].path.clone();
+        assert_eq!(state.begin_relink_probe(video_index), Some(MediaKind::Video));
+        state.handle_relink_result(RelinkResult {
+            index: video_index,
+            path: PathBuf::from("/tmp/unrelated.mp4"),
+            fingerprint: Some(Fingerprint::new(200, 4, 5, 6)),
+            duration: Some(Tick::from_seconds(20.0)),
+            probe: None,
+            error: None,
+        });
+        assert_eq!(state.pool[video_index].path, original_path);
+        assert!(state.pool[video_index]
+            .probe_error
+            .as_deref()
+            .unwrap()
+            .contains("does not match"));
+
+        assert_eq!(state.begin_relink_probe(video_index), Some(MediaKind::Video));
+        state.handle_relink_result(RelinkResult {
+            index: video_index,
+            path: PathBuf::from("/tmp/matching-copy.mp4"),
+            fingerprint: Some(expected),
+            duration: Some(Tick::from_seconds(20.0)),
+            probe: None,
+            error: None,
+        });
+        assert_eq!(
+            state.pool[video_index].path,
+            PathBuf::from("/tmp/matching-copy.mp4")
+        );
+        assert_eq!(
+            state.project.assets.iter().find(|asset| asset.id == asset_id).unwrap().path_hint,
+            "/tmp/matching-copy.mp4"
+        );
+        assert!(state.is_dirty);
+    }
+
+    #[test]
     fn import_registers_assets_and_dedupes() {
         let mut state = AppState::new();
         let a = state.import_path(PathBuf::from("/tmp/a.mp4"));
