@@ -184,6 +184,138 @@ pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
     })
 }
 
+/// Decoded stereo PCM used by the export pipeline. Samples are
+/// interleaved left/right floating point values in -1.0..=1.0.
+#[derive(Debug, Clone)]
+pub struct DecodedStereoAudio {
+    pub samples: Vec<f32>,
+    pub sample_rate: u32,
+}
+
+impl DecodedStereoAudio {
+    pub fn sample_frames(&self) -> usize {
+        self.samples.len() / 2
+    }
+
+    pub fn duration_seconds(&self) -> f64 {
+        if self.sample_rate == 0 {
+            0.0
+        } else {
+            self.sample_frames() as f64 / self.sample_rate as f64
+        }
+    }
+
+    pub fn duration(&self) -> Tick {
+        samples_to_tick(self.sample_frames() as i64, self.sample_rate)
+    }
+}
+
+/// Decode an audio file to interleaved stereo PCM without collapsing
+/// ordinary stereo material to mono. Mono sources are duplicated to
+/// both output channels. Sources with more than two channels are
+/// conservatively averaged to mono and duplicated because this slice
+/// does not yet expose a configurable surround downmix.
+pub fn decode_stereo_file(path: &Path) -> Result<DecodedStereoAudio> {
+    use symphonia::core::audio::SampleBuffer;
+    use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+    use symphonia::core::errors::Error as SymError;
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+
+    let file = File::open(path)
+        .map_err(|e| AudioError::Message(format!("cannot open {}: {e}", path.display())))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .map_err(|e| AudioError::Message(format!("cannot probe {}: {e}", path.display())))?;
+    let mut format = probed.format;
+
+    // The MP4 demuxer can leave optional channel-layout metadata unset
+    // until the AAC packet is decoded. Sample rate is present in the audio
+    // track parameters, while video tracks do not expose an audio sample rate.
+    // Do not require channels to be populated before creating the decoder.
+    let track = format
+        .tracks()
+        .iter()
+        .find(|track| {
+            track.codec_params.codec != CODEC_TYPE_NULL
+                && track.codec_params.sample_rate.is_some()
+        })
+        .ok_or_else(|| AudioError::Message(format!("no audio track in {}", path.display())))?
+        .clone();
+
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .map_err(|e| AudioError::Message(format!("no decoder for {}: {e}", path.display())))?;
+
+    let mut samples = Vec::<f32>::new();
+    let mut sample_rate = 0u32;
+    let mut channels = 0usize;
+    let mut sample_buf: Option<SampleBuffer<f32>> = None;
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(SymError::IoError(_)) => break,
+            Err(e) => return msg(format!("read error in {}: {e}", path.display())),
+        };
+        if packet.track_id() != track.id {
+            continue;
+        }
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                let spec = *decoded.spec();
+                if sample_buf.is_none() {
+                    sample_rate = spec.rate;
+                    channels = spec.channels.count();
+                    if channels == 0 {
+                        return msg(format!("audio stream has no channels in {}", path.display()));
+                    }
+                    sample_buf = Some(SampleBuffer::<f32>::new(decoded.capacity() as u64, spec));
+                }
+                let buf = sample_buf.as_mut().unwrap();
+                buf.copy_interleaved_ref(decoded);
+                let interleaved = buf.samples();
+                if channels == 1 {
+                    for &sample in interleaved {
+                        let sample = if sample.is_finite() { sample.clamp(-1.0, 1.0) } else { 0.0 };
+                        samples.push(sample);
+                        samples.push(sample);
+                    }
+                } else if channels == 2 {
+                    for frame in interleaved.chunks_exact(2) {
+                        samples.push(if frame[0].is_finite() { frame[0].clamp(-1.0, 1.0) } else { 0.0 });
+                        samples.push(if frame[1].is_finite() { frame[1].clamp(-1.0, 1.0) } else { 0.0 });
+                    }
+                } else {
+                    for frame in interleaved.chunks_exact(channels) {
+                        let mono = frame.iter().copied().sum::<f32>() / channels as f32;
+                        let mono = if mono.is_finite() { mono.clamp(-1.0, 1.0) } else { 0.0 };
+                        samples.push(mono);
+                        samples.push(mono);
+                    }
+                }
+            }
+            Err(SymError::DecodeError(_)) => continue,
+            Err(SymError::IoError(_)) => break,
+            Err(e) => return msg(format!("decode error in {}: {e}", path.display())),
+        }
+    }
+
+    if samples.is_empty() || sample_rate == 0 {
+        return msg(format!("no audio decoded from {}", path.display()));
+    }
+    Ok(DecodedStereoAudio { samples, sample_rate })
+}
+
 // --------------------------------------------------------- analysis output
 
 /// One detected onset: an exact time and a strength in 0.0..=1.0.

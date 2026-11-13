@@ -10,6 +10,8 @@ fn sample_asset(id: u64) -> Asset {
         path_hint: format!("/media/clip{id}.mp4"),
         kind: AssetKind::Video,
         duration: Tick::from_seconds(60.0),
+        intro_trim: Tick::ZERO,
+        outro_trim: Tick::ZERO,
     }
 }
 
@@ -150,6 +152,33 @@ fn zero_duration_rejected() {
     assert_eq!(
         project.validate(),
         Err(ModelError::NonPositiveDuration { id: 100 })
+    );
+}
+
+#[test]
+fn item_source_range_must_respect_asset_trims() {
+    let mut project = sample_project();
+    let asset = project.assets.iter_mut().find(|asset| asset.id == 1).unwrap();
+    asset.intro_trim = Tick::from_seconds(2.0);
+    asset.outro_trim = Tick::from_seconds(3.0);
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::ItemOutsideAssetTrimWindow {
+            item_id: 100,
+            asset_id: 1,
+        })
+    );
+
+    project.items_mut(10).unwrap()[0].source_in = Tick::from_seconds(2.0);
+    assert!(project.validate().is_ok());
+
+    project.items_mut(10).unwrap()[0].source_in = Tick::from_seconds(56.0);
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::ItemOutsideAssetTrimWindow {
+            item_id: 100,
+            asset_id: 1,
+        })
     );
 }
 
@@ -345,9 +374,57 @@ fn save_load_round_trip_and_backup() {
 }
 
 #[test]
+fn schema_one_projects_migrate_source_metadata_and_single_song() {
+    let mut project = sample_project();
+    let mut song = sample_asset(3);
+    song.kind = AssetKind::Audio;
+    song.path_hint = "/media/song.wav".to_string();
+    project.assets.push(song);
+
+    let json = project.to_json().unwrap();
+    let mut legacy: serde_json::Value = serde_json::from_str(&json).unwrap();
+    legacy["schema_version"] = serde_json::Value::from(1);
+    let object = legacy.as_object_mut().unwrap();
+    object.remove("song_asset_id");
+    for asset in object
+        .get_mut("assets")
+        .unwrap()
+        .as_array_mut()
+        .unwrap()
+    {
+        let asset = asset.as_object_mut().unwrap();
+        asset.remove("intro_trim");
+        asset.remove("outro_trim");
+    }
+
+    let migrated = Project::from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
+    assert_eq!(migrated.schema_version, 2);
+    assert_eq!(migrated.song_asset_id, Some(3));
+    assert!(migrated.assets.iter().all(|asset| {
+        asset.intro_trim == Tick::ZERO && asset.outro_trim == Tick::ZERO
+    }));
+}
+
+#[test]
+fn song_selection_and_source_trims_round_trip() {
+    let mut project = sample_project();
+    let mut song = sample_asset(3);
+    song.kind = AssetKind::Audio;
+    project.assets.push(song);
+    project.song_asset_id = Some(3);
+    project.assets[0].intro_trim = Tick::from_seconds(1.25);
+    project.assets[0].outro_trim = Tick::from_seconds(2.0);
+    project.items_mut(10).unwrap()[0].source_in = Tick::from_seconds(1.25);
+    let loaded = Project::from_json(&project.to_json().unwrap()).unwrap();
+    assert_eq!(loaded.song_asset_id, Some(3));
+    assert_eq!(loaded.assets[0].intro_trim, Tick::from_seconds(1.25));
+    assert_eq!(loaded.assets[0].outro_trim, Tick::from_seconds(2.0));
+}
+
+#[test]
 fn newer_schema_gets_a_clear_error() {
     let mut text = sample_project().to_json().unwrap();
-    text = text.replace("\"schema_version\": 1", "\"schema_version\": 99");
+    text = text.replace("\"schema_version\": 2", "\"schema_version\": 99");
     match Project::from_json(&text) {
         Err(ricodex_core::PersistenceError::NewerSchema { found: 99, .. }) => {}
         other => panic!("expected newer schema error, got {other:?}"),

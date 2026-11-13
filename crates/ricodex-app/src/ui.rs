@@ -19,12 +19,12 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use egui::{Color32, CornerRadius, RichText, Stroke};
 
-use ricodex_core::Tick;
+use ricodex_core::{Command, ItemId, Project, Tick};
 use ricodex_engine::ClipState;
 
 use crate::jobs;
 use crate::state::{
-    AppState, ExportMsg, JobState, MediaKind, Page, PipelineMsg, ProbeResult,
+    AppState, ExportMsg, JobState, MediaKind, Page, PipelineMsg, ProbeResult, RelinkResult,
 };
 
 // ---------------------------------------------------------------- theme
@@ -90,8 +90,11 @@ pub fn apply_theme(ctx: &egui::Context) {
 
 pub struct EditorApp {
     state: AppState,
+    dragging_item: Option<ItemId>,
     probe_tx: Sender<ProbeResult>,
     probe_rx: Receiver<ProbeResult>,
+    relink_tx: Sender<RelinkResult>,
+    relink_rx: Receiver<RelinkResult>,
     pipeline_rx: Option<Receiver<PipelineMsg>>,
     export_rx: Option<Receiver<ExportMsg>>,
     cache_home: PathBuf,
@@ -105,6 +108,7 @@ pub struct EditorApp {
 impl EditorApp {
     pub fn from_env() -> EditorApp {
         let (probe_tx, probe_rx) = std::sync::mpsc::channel();
+        let (relink_tx, relink_rx) = std::sync::mpsc::channel();
         let mut state = AppState::new();
         if let Ok(page) = std::env::var("RICODEX_PAGE") {
             if let Some(page) = Page::from_env(&page) {
@@ -124,8 +128,11 @@ impl EditorApp {
         let shot_path = std::env::var("RICODEX_SHOT").ok().map(PathBuf::from);
         let mut app = EditorApp {
             state,
+            dragging_item: None,
             probe_tx,
             probe_rx,
+            relink_tx,
+            relink_rx,
             pipeline_rx: None,
             export_rx: None,
             cache_home,
@@ -172,9 +179,124 @@ impl EditorApp {
         std::thread::spawn(move || jobs::run_export(project, path, tx));
     }
 
+    fn save_project_as(&mut self) {
+        let path = rfd::FileDialog::new()
+            .set_file_name("RicoDex.rdx")
+            .add_filter("RicoDex project", &["rdx", "json"])
+            .save_file();
+        if let Some(path) = path {
+            if let Err(error) = self.state.save_project_to(path) {
+                self.state.notice = Some(format!("project save failed: {error}"));
+            } else {
+                self.state.notice = Some("project saved".to_string());
+            }
+        }
+    }
+
+    fn save_project(&mut self) {
+        if let Some(path) = self.state.project_path.clone() {
+            if let Err(error) = self.state.save_project_to(path) {
+                self.state.notice = Some(format!("project save failed: {error}"));
+            } else {
+                self.state.notice = Some("project saved".to_string());
+            }
+        } else {
+            self.save_project_as();
+        }
+    }
+
+    fn open_project_dialog(&mut self) {
+        let path = rfd::FileDialog::new()
+            .add_filter("RicoDex project", &["rdx", "json"])
+            .pick_file();
+        let Some(path) = path else {
+            return;
+        };
+        match Project::load(&path) {
+            Ok(project) => {
+                let probes = self.state.restore_project(project, path);
+                for (index, media_path, kind) in probes {
+                    let tx = self.relink_tx.clone();
+                    std::thread::spawn(move || {
+                        jobs::run_relink_probe(index, media_path, kind, tx)
+                    });
+                }
+            }
+            Err(error) => {
+                self.state.notice = Some(format!("could not open project: {error}"));
+            }
+        }
+    }
+
+    fn project_toolbar(&mut self, ui: &mut egui::Ui) {
+        let busy = self.state.pipeline_running()
+            || self.state.export_job.is_running()
+            || self.state.probe_job.is_running();
+        let can_save = !busy && self.state.is_dirty;
+        let can_save_as = !busy;
+        let can_open = !busy && !self.state.is_dirty;
+
+        let mut save = false;
+        let mut save_as = false;
+        let mut open = false;
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Project").strong());
+            let name = self
+                .state
+                .project_path
+                .as_ref()
+                .and_then(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Untitled".to_string());
+            ui.label(RichText::new(name).color(SILVER_DIM));
+            if self.state.is_dirty {
+                ui.label(RichText::new("unsaved changes").color(WARN).small());
+            }
+            save = ui
+                .add_enabled(can_save, egui::Button::new("Save"))
+                .clicked();
+            save_as = ui
+                .add_enabled(can_save_as, egui::Button::new("Save As…"))
+                .clicked();
+            open = ui
+                .add_enabled(can_open, egui::Button::new("Open…"))
+                .clicked();
+        });
+        if self.state.is_dirty && !busy {
+            ui.label(
+                RichText::new("Save current changes before opening another project.")
+                    .color(SILVER_DIM)
+                    .small(),
+            );
+        }
+        if save {
+            self.save_project();
+        }
+        if save_as {
+            self.save_project_as();
+        }
+        if open {
+            self.open_project_dialog();
+        }
+        if let Some(notice) = &self.state.notice {
+            ui.label(
+                RichText::new(notice)
+                    .color(if notice.contains("failed") || notice.contains("could not") {
+                        WARN
+                    } else {
+                        SILVER_DIM
+                    })
+                    .small(),
+            );
+        }
+    }
+
     fn drain_channels(&mut self) {
         while let Ok(result) = self.probe_rx.try_recv() {
             self.state.handle_probe_result(result);
+        }
+        while let Ok(result) = self.relink_rx.try_recv() {
+            self.state.handle_relink_result(result);
         }
         if let Some(rx) = &self.pipeline_rx {
             let mut drained = Vec::new();
@@ -200,6 +322,43 @@ impl EditorApp {
 impl eframe::App for EditorApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_channels();
+
+        let (undo, redo, save, save_as, open) = ctx.input(|input| {
+            let command = input.modifiers.command;
+            (
+                self.state.page == Page::Edit
+                    && command
+                    && input.key_pressed(egui::Key::Z)
+                    && !input.modifiers.shift,
+                self.state.page == Page::Edit
+                    && ((command && input.key_pressed(egui::Key::Y))
+                        || (command
+                            && input.modifiers.shift
+                            && input.key_pressed(egui::Key::Z))),
+                command && input.key_pressed(egui::Key::S) && !input.modifiers.shift,
+                command && input.key_pressed(egui::Key::S) && input.modifiers.shift,
+                command && input.key_pressed(egui::Key::O),
+            )
+        });
+
+        if undo && !self.state.pipeline_running() {
+            self.state.undo_edit();
+        } else if redo && !self.state.pipeline_running() {
+            self.state.redo_edit();
+        }
+
+        let project_busy = self.state.pipeline_running()
+            || self.state.export_job.is_running()
+            || self.state.probe_job.is_running();
+        if !project_busy {
+            if save {
+                self.save_project();
+            } else if save_as {
+                self.save_project_as();
+            } else if open && !self.state.is_dirty {
+                self.open_project_dialog();
+            }
+        }
 
         // Automated run hook: with RICODEX_AUTOSTART set, begin the
         // pipeline as soon as probing finishes, marking the first
@@ -271,6 +430,8 @@ impl eframe::App for EditorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.footer(ui);
         egui::CentralPanel::default().show(ui, |ui| {
+            self.project_toolbar(ui);
+            ui.separator();
             match self.state.page {
                 Page::Media => self.media_page(ui),
                 Page::Cut => self.cut_page(ui),
@@ -363,7 +524,11 @@ impl EditorApp {
         ui.horizontal(|ui| {
             ui.heading("Media");
             ui.add_space(12.0);
-            if ui.button("Import files").clicked() {
+            let can_import = !self.state.has_manual_edits && !self.state.pipeline_running();
+            if ui
+                .add_enabled(can_import, egui::Button::new("Import files"))
+                .clicked()
+            {
                 let dialog = rfd::FileDialog::new().add_filter(
                     "Media",
                     &[
@@ -385,10 +550,20 @@ impl EditorApp {
                 .small(),
             );
         });
+        if self.state.has_manual_edits {
+            ui.label(
+                RichText::new(
+                    "Media import is paused until timeline edits are undone; the current project model cannot merge new assets into an edited cut yet.",
+                )
+                .color(SILVER_DIM)
+                .small(),
+            );
+        }
         ui.separator();
 
         let mut set_song_to: Option<usize> = None;
         let mut trim_changes: Vec<(usize, f64, f64)> = Vec::new();
+        let mut relink_index: Option<usize> = None;
         egui::ScrollArea::vertical()
             .max_height(ui.available_height() - 64.0)
             .show(ui, |ui| {
@@ -414,7 +589,12 @@ impl EditorApp {
                                 );
                                 if entry.kind == crate::state::MediaKind::Audio {
                                     let is_song = self.state.song_index == Some(index);
-                                    if ui.radio(is_song, "song").clicked() {
+                                    let can_choose_song = !self.state.has_manual_edits
+                                        || self.state.project.song_asset_id.is_none();
+                                    if ui
+                                        .add_enabled(can_choose_song, egui::RadioButton::new(is_song, "song"))
+                                        .clicked()
+                                    {
                                         set_song_to = Some(index);
                                     }
                                 }
@@ -438,6 +618,19 @@ impl EditorApp {
                                     .color(if warn { WARN } else { SILVER_DIM })
                                     .small(),
                             );
+                            if !entry.probing && entry.probe_error.is_some() {
+                                if self.state.can_relink_asset(index) {
+                                    if ui.button("Locate…").clicked() {
+                                        relink_index = Some(index);
+                                    }
+                                } else {
+                                    ui.label(
+                                        RichText::new("Cannot relink safely: no fingerprint was saved. Restore the source to its original path.")
+                                            .color(WARN)
+                                            .small(),
+                                    );
+                                }
+                            }
                             if entry.kind == crate::state::MediaKind::Video {
                                 let mut intro_s = entry.intro_trim.to_seconds();
                                 let mut outro_s = entry.outro_trim.to_seconds();
@@ -448,7 +641,8 @@ impl EditorApp {
                                 ui.horizontal(|ui| {
                                     ui.label("intro trim");
                                     let changed_in = ui
-                                        .add(
+                                        .add_enabled(
+                                            self.state.can_edit_source_trims(),
                                             egui::DragValue::new(&mut intro_s)
                                                 .speed(0.05)
                                                 .range(0.0..=max_s)
@@ -458,7 +652,8 @@ impl EditorApp {
                                         .changed();
                                     ui.label("outro trim");
                                     let changed_out = ui
-                                        .add(
+                                        .add_enabled(
+                                            self.state.can_edit_source_trims(),
                                             egui::DragValue::new(&mut outro_s)
                                                 .speed(0.05)
                                                 .range(0.0..=max_s)
@@ -481,6 +676,26 @@ impl EditorApp {
         for (index, intro, outro) in trim_changes {
             self.state.set_trims_seconds(index, intro, outro);
         }
+        if let Some(index) = relink_index {
+            let kind = self.state.pool.get(index).map(|entry| entry.kind);
+            let path = match kind {
+                Some(MediaKind::Audio) => rfd::FileDialog::new()
+                    .add_filter("Audio", &["wav", "mp3", "flac", "ogg", "m4a", "aac", "opus"])
+                    .pick_file(),
+                Some(MediaKind::Video) => rfd::FileDialog::new()
+                    .add_filter("Video", &["mp4", "mkv", "mov", "webm", "avi", "m4v"])
+                    .pick_file(),
+                None => None,
+            };
+            if let Some(path) = path {
+                if let Some(kind) = self.state.begin_relink_probe(index) {
+                    let tx = self.relink_tx.clone();
+                    std::thread::spawn(move || {
+                        jobs::run_relink_probe(index, path, kind, tx)
+                    });
+                }
+            }
+        }
 
         ui.separator();
         ui.horizontal(|ui| {
@@ -494,6 +709,14 @@ impl EditorApp {
             }
             if self.state.pipeline_running() {
                 ui.label("analysis is running; its progress lives on the Cut page");
+            } else if self.state.has_manual_edits {
+                ui.label(
+                    RichText::new(
+                        "undo your timeline edits before starting another analysis; current generation cannot merge edited clips yet",
+                    )
+                    .color(SILVER_DIM)
+                    .small(),
+                );
             } else if !can {
                 ui.label(
                     RichText::new(
@@ -598,7 +821,7 @@ impl EditorApp {
         }
         ui.separator();
 
-        self.timeline_strip(ui, 72.0);
+        self.timeline_strip(ui, 72.0, false);
         ui.label(
             RichText::new(
                 "hatched and dimmed = provisional, plain = settled, circle at the top right of a clip toggles its pin",
@@ -643,7 +866,37 @@ impl EditorApp {
     fn edit_page(&mut self, ui: &mut egui::Ui) {
         ui.heading("Edit");
         ui.add_space(4.0);
-        self.timeline_strip(ui, 110.0);
+
+        let pipeline_running = self.state.pipeline_running();
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("History").strong());
+            if ui
+                .add_enabled(!pipeline_running && self.state.can_undo_edit(), egui::Button::new("Undo"))
+                .clicked()
+            {
+                self.state.undo_edit();
+            }
+            if ui
+                .add_enabled(!pipeline_running && self.state.can_redo_edit(), egui::Button::new("Redo"))
+                .clicked()
+            {
+                self.state.redo_edit();
+            }
+            if pipeline_running {
+                ui.label(
+                    RichText::new("Editing is paused while the cut is being generated.")
+                        .color(SILVER_DIM)
+                        .small(),
+                );
+            }
+        });
+
+        self.timeline_strip(ui, 110.0, true);
+        ui.label(
+            RichText::new("Drag clips left or right to reorder. Reordered clips are kept contiguous for the current sequential export path.")
+                .color(SILVER_DIM)
+                .small(),
+        );
         ui.separator();
         let selected = self
             .state
@@ -656,6 +909,14 @@ impl EditorApp {
             });
         match selected {
             Some(clip) => {
+                let mut duration_seconds = clip.duration.to_seconds();
+                let mut source_in_seconds = clip.source_in.to_seconds();
+                let mut new_duration = None;
+                let mut new_source_in = None;
+                let mut split_requested = false;
+                let mut delete_requested = false;
+                let mut pin_requested = false;
+
                 egui::Frame::new()
                     .fill(SURFACE)
                     .corner_radius(CornerRadius::same(4))
@@ -664,12 +925,6 @@ impl EditorApp {
                         ui.label(RichText::new("Inspector").strong());
                         ui.add_space(4.0);
                         ui.label(format!("source: {}", self.state.asset_name(clip.asset_id)));
-                        ui.label(format!("start: {:.2} s", clip.start.to_seconds()));
-                        ui.label(format!("duration: {:.2} s", clip.duration.to_seconds()));
-                        ui.label(format!(
-                            "source in: {:.2} s",
-                            clip.source_in.to_seconds()
-                        ));
                         ui.label(format!(
                             "state: {}",
                             match clip.state {
@@ -677,31 +932,135 @@ impl EditorApp {
                                 ClipState::Settled => "settled",
                             }
                         ));
-                        ui.add_space(4.0);
-                        let pinned = self.state.is_pinned(clip.item_id);
-                        if ui
-                            .button(if pinned { "Unpin clip" } else { "Pin clip" })
-                            .clicked()
-                        {
-                            self.state.toggle_pin(clip.item_id);
-                        }
-                        if pinned {
+
+                        ui.label(format!("timeline start: {:.2} s", clip.start.to_seconds()));
+                        let source_duration = self
+                            .state
+                            .asset_duration(clip.asset_id)
+                            .map(|duration| duration.to_seconds())
+                            .unwrap_or(36000.0);
+                        let (source_start, source_end) = self
+                            .state
+                            .asset_source_window(clip.asset_id)
+                            .unwrap_or((Tick::ZERO, Tick::from_seconds(source_duration)));
+                        ui.horizontal(|ui| {
+                            ui.label("Duration");
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut duration_seconds)
+                                        .speed(0.05)
+                                        .range(
+                                            0.01
+                                                ..=((source_end - clip.source_in).to_seconds())
+                                                    .max(0.01),
+                                        )
+                                        .fixed_decimals(2)
+                                        .suffix(" s"),
+                                )
+                                .changed()
+                            {
+                                new_duration = Some(Tick::from_seconds(duration_seconds.max(0.01)));
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Source in");
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut source_in_seconds)
+                                        .speed(0.05)
+                                        .range(
+                                            source_start.to_seconds()
+                                                ..=((source_end - Tick::from_seconds(duration_seconds)).to_seconds())
+                                                    .max(source_start.to_seconds()),
+                                        )
+                                        .fixed_decimals(2)
+                                        .suffix(" s"),
+                                )
+                                .changed()
+                            {
+                                new_source_in = Some(Tick::from_seconds(
+                                    source_in_seconds.max(source_start.to_seconds()),
+                                ));
+                            }
+                        });
+
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            delete_requested = ui
+                                .add_enabled(!pipeline_running, egui::Button::new("Delete clip"))
+                                .clicked();
+                            split_requested = ui
+                                .add_enabled(
+                                    !pipeline_running && clip.duration > Tick::from_seconds(0.02),
+                                    egui::Button::new("Split at midpoint"),
+                                )
+                                .clicked();
+                            let pinned = self.state.is_pinned(clip.item_id);
+                            pin_requested = ui
+                                .button(if pinned { "Unpin clip" } else { "Pin clip" })
+                                .clicked();
+                        });
+                        if self.state.is_pinned(clip.item_id) {
                             ui.label(
-                                RichText::new("pinned clips are never replaced by refinement")
+                                RichText::new("pinned clips are protected from planner refinement")
                                     .color(SILVER_DIM)
                                     .small(),
                             );
                         }
                     });
+
+                if pin_requested {
+                    self.state.toggle_pin(clip.item_id);
+                }
+
+                let command = if delete_requested {
+                    Some(Command::RippleRemoveItem { item_id: clip.item_id })
+                } else if split_requested {
+                    self.state.next_item_id().map(|new_item_id| Command::SplitItem {
+                        item_id: clip.item_id,
+                        at: clip.start + Tick::from_ticks(clip.duration.as_ticks() / 2),
+                        new_item_id,
+                    })
+                } else if new_duration.is_some() || new_source_in.is_some() {
+                    Some(Command::RippleTrimItem {
+                        item_id: clip.item_id,
+                        new_source_in,
+                        new_duration,
+                    })
+                } else {
+                    None
+                };
+
+                if let Some(command) = command {
+                    let split_id = match &command {
+                        Command::SplitItem { new_item_id, .. } => Some(*new_item_id),
+                        _ => None,
+                    };
+                    let removes_item = matches!(
+                        &command,
+                        Command::RippleRemoveItem { .. } | Command::RemoveItem { .. }
+                    );
+                    match self.state.apply_edit(&command) {
+                        Ok(()) => {
+                            self.state.selected_item = split_id.or_else(|| {
+                                if removes_item { None } else { Some(clip.item_id) }
+                            });
+                        }
+                        Err(error) => self.state.notice = Some(error),
+                    }
+                }
             }
             None => {
                 ui.label(
-                    RichText::new(
-                        "Select a clip on the timeline. Full editing tools arrive in a later slice.",
-                    )
-                    .color(SILVER_DIM),
+                    RichText::new("Select a clip on the timeline to inspect and edit it.")
+                        .color(SILVER_DIM),
                 );
             }
+        }
+
+        if let Some(notice) = &self.state.notice {
+            ui.add_space(4.0);
+            ui.label(RichText::new(notice).color(WARN));
         }
     }
 }
@@ -734,12 +1093,29 @@ impl EditorApp {
                     "video bitrate: {} kbps · audio bitrate: {} kbps",
                     settings.video_bitrate_kbps, settings.audio_bitrate_kbps
                 ));
+                let selected_song = self.state.project.song_asset_id.and_then(|song_id| {
+                    self.state
+                        .project
+                        .assets
+                        .iter()
+                        .find(|asset| asset.id == song_id)
+                        .map(|asset| {
+                            std::path::Path::new(&asset.path_hint)
+                                .file_name()
+                                .map(|name| name.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| asset.path_hint.clone())
+                        })
+                });
+                let soundtrack_status = match selected_song {
+                    Some(name) => format!(
+                        "Soundtrack: {name} (stereo AAC). Starts at timeline zero and is fitted to the video duration. Clip-source audio, fades and track gain are not included yet."
+                    ),
+                    None => "No song selected. This export will be video-only.".to_string(),
+                };
                 ui.label(
-                    RichText::new(
-                        "Read only in this slice. The export is a sequential hard cut render, video only.",
-                    )
-                    .color(SILVER_DIM)
-                    .small(),
+                    RichText::new(soundtrack_status)
+                        .color(SILVER_DIM)
+                        .small(),
                 );
             });
         ui.add_space(8.0);
@@ -825,10 +1201,10 @@ impl EditorApp {
 
 impl EditorApp {
     /// The timeline as a horizontal strip of clip blocks sized by
-    /// duration. Provisional clips are dimmed and hatched, settled
-    /// clips plain; the circle at a block's top right toggles its
+    /// duration. On the Edit page, dragging a block reorders the
+    /// sequential cut. The circle at a block's top right toggles its
     /// pin, and clicking the body selects the clip.
-    fn timeline_strip(&mut self, ui: &mut egui::Ui, height: f32) {
+    fn timeline_strip(&mut self, ui: &mut egui::Ui, height: f32, allow_reorder: bool) {
         let clips = self.state.timeline_clips();
         let total = self.state.timeline_total();
         let width = ui.available_width();
@@ -851,6 +1227,7 @@ impl EditorApp {
             return;
         }
         let total_s = total.to_seconds();
+        let mut completed_drag: Option<(ItemId, egui::Pos2)> = None;
         for clip in &clips {
             let x0 = rect.left()
                 + (clip.start.to_seconds() / total_s) as f32 * rect.width();
@@ -861,8 +1238,22 @@ impl EditorApp {
                 egui::pos2(x0 + 1.0, rect.top() + 4.0),
                 egui::pos2((x1 - 1.0).max(x0 + 4.0), rect.bottom() - 4.0),
             );
+            let sense = if allow_reorder && !self.state.pipeline_running() {
+                egui::Sense::click_and_drag()
+            } else {
+                egui::Sense::click()
+            };
             let response =
-                ui.interact(block, ui.scope_id().with(("clip", clip.item_id)), egui::Sense::click());
+                ui.interact(block, ui.scope_id().with(("clip", clip.item_id)), sense);
+            if response.drag_started() {
+                self.dragging_item = Some(clip.item_id);
+            }
+            if response.drag_stopped() && self.dragging_item == Some(clip.item_id) {
+                completed_drag = ui
+                    .input(|input| input.pointer.interact_pos())
+                    .map(|position| (clip.item_id, position));
+                self.dragging_item = None;
+            }
             let pinned = self.state.is_pinned(clip.item_id);
             let selected = self.state.selected_item == Some(clip.item_id);
 
@@ -922,5 +1313,72 @@ impl EditorApp {
                 }
             }
         }
+        if allow_reorder {
+            if let Some(dragged_item_id) = self.dragging_item {
+                if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
+                    if rect.contains(pointer) {
+                        let before_item_id = clips
+                            .iter()
+                            .filter(|clip| clip.item_id != dragged_item_id)
+                            .find(|clip| {
+                                let midpoint = rect.left()
+                                    + ((clip.start.to_seconds()
+                                        + clip.duration.to_seconds() * 0.5)
+                                        / total_s) as f32
+                                        * rect.width();
+                                pointer.x < midpoint
+                            })
+                            .map(|clip| clip.item_id);
+                        let marker_x = before_item_id
+                            .and_then(|target| clips.iter().find(|clip| clip.item_id == target))
+                            .map(|target| {
+                                rect.left()
+                                    + (target.start.to_seconds() / total_s) as f32
+                                        * rect.width()
+                            })
+                            .unwrap_or(rect.right() - 2.0);
+                        painter.line_segment(
+                            [
+                                egui::pos2(marker_x, rect.top() + 2.0),
+                                egui::pos2(marker_x, rect.bottom() - 2.0),
+                            ],
+                            Stroke::new(2.0, TEAL),
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some((dragged_item_id, pointer)) = completed_drag {
+            if allow_reorder && rect.contains(pointer) {
+                let before_item_id = clips
+                    .iter()
+                    .filter(|clip| clip.item_id != dragged_item_id)
+                    .find(|clip| {
+                        let midpoint = rect.left()
+                            + ((clip.start.to_seconds()
+                                + clip.duration.to_seconds() * 0.5)
+                                / total_s) as f32
+                                * rect.width();
+                        pointer.x < midpoint
+                    })
+                    .map(|clip| clip.item_id);
+                let current_before = clips
+                    .iter()
+                    .position(|clip| clip.item_id == dragged_item_id)
+                    .and_then(|position| clips.get(position + 1))
+                    .map(|clip| clip.item_id);
+                if before_item_id != current_before {
+                    match self.state.apply_edit(&Command::ReorderItem {
+                        item_id: dragged_item_id,
+                        before_item_id,
+                    }) {
+                        Ok(()) => self.state.selected_item = Some(dragged_item_id),
+                        Err(error) => self.state.notice = Some(error),
+                    }
+                }
+            }
+        }
+
     }
 }

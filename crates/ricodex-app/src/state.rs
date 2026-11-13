@@ -17,7 +17,8 @@ use std::time::Instant;
 
 use ricodex_audio::SongAnalysis;
 use ricodex_core::{
-    Asset, AssetId, AssetKind, Fingerprint, ItemId, Project, Tick, Track, TrackKind,
+    Asset, AssetId, AssetKind, Command, Fingerprint, History, ItemId, Project, Tick, Track,
+    TrackKind,
 };
 use ricodex_engine::{ClipState, Plan, PlannerSettings, SourceInfo};
 use ricodex_media::{MediaProbe, SourceAnalysis};
@@ -219,6 +220,17 @@ pub struct ProbeResult {
     pub error: Option<String>,
 }
 
+/// Probe result while verifying or locating media referenced by a saved project.
+#[derive(Clone, Debug)]
+pub struct RelinkResult {
+    pub index: usize,
+    pub path: PathBuf,
+    pub fingerprint: Option<Fingerprint>,
+    pub duration: Option<Tick>,
+    pub probe: Option<MediaProbe>,
+    pub error: Option<String>,
+}
+
 /// One event from the pipeline worker thread.
 #[derive(Clone, Debug)]
 pub enum PipelineMsg {
@@ -293,6 +305,16 @@ pub fn eta_seconds(fraction: f32, elapsed_s: f64) -> Option<f64> {
 
 pub struct AppState {
     pub project: Project,
+    /// Core command history shared by every editing control.
+    pub history: History,
+    /// True after a user edit diverges from the latest generated plan.
+    /// A new analysis is blocked until those edits are undone, avoiding
+    /// silently replacing work that the current planner cannot preserve.
+    pub has_manual_edits: bool,
+    /// Current project file path, when the project has been saved or opened.
+    pub project_path: Option<PathBuf>,
+    /// True when project metadata or timeline contents differ from disk.
+    pub is_dirty: bool,
     pub pool: Vec<PoolEntry>,
     pub page: Page,
     pub song_index: Option<usize>,
@@ -325,8 +347,13 @@ impl AppState {
     pub fn new() -> AppState {
         let mut project = Project::new();
         project.add_track(Track::new(VIDEO_TRACK_ID, TrackKind::Video, "V1"));
+        let history = History::new(project.clone());
         AppState {
             project,
+            history,
+            has_manual_edits: false,
+            project_path: None,
+            is_dirty: false,
             pool: Vec::new(),
             page: Page::Media,
             song_index: None,
@@ -372,6 +399,8 @@ impl AppState {
                 MediaKind::Audio => AssetKind::Audio,
             },
             duration: Tick::ZERO,
+            intro_trim: Tick::ZERO,
+            outro_trim: Tick::ZERO,
         });
         self.pool.push(PoolEntry {
             path,
@@ -387,6 +416,9 @@ impl AppState {
             stage2: None,
             stage2_fraction: 0.0,
         });
+        // Import changes project metadata outside the edit-command history.
+        self.history = History::new(self.project.clone());
+        self.is_dirty = true;
         if !self.probe_job.is_running() {
             self.probe_job = JobState::Running {
                 label: "probing".to_string(),
@@ -415,9 +447,185 @@ impl AppState {
                 asset.duration = duration;
             }
         }
+        // Probe metadata is part of the project snapshot as well.
+        self.history = History::new(self.project.clone());
+        self.is_dirty = true;
         if !self.pool.iter().any(|e| e.probing) {
             self.probe_job = JobState::Done;
         }
+    }
+
+    /// Rebuild the Media pool from a loaded project. Existing files are
+    /// fingerprint-checked on worker threads; missing files remain in the
+    /// pool with an explicit Locate action instead of being discarded.
+    pub fn restore_project(
+        &mut self,
+        project: Project,
+        project_path: PathBuf,
+    ) -> Vec<(usize, PathBuf, MediaKind)> {
+        self.project = project;
+        self.project_path = Some(project_path);
+        self.is_dirty = false;
+        self.pool.clear();
+        self.plan = None;
+        self.song_analysis = None;
+        self.pipeline_stage = None;
+        self.pipeline_videos.clear();
+        self.stage_current = None;
+        self.pipeline_job = JobState::Idle;
+        self.export_job = JobState::Idle;
+        self.export_result = None;
+        self.selected_item = None;
+        self.pinned = Arc::new(Mutex::new(HashSet::new()));
+
+        self.song_index = self.project.song_asset_id.and_then(|song_id| {
+            self.project.assets.iter().position(|asset| asset.id == song_id)
+        });
+        self.has_manual_edits = self.project.track_items.iter().any(|group| !group.items.is_empty());
+        self.next_asset_id = self
+            .project
+            .assets
+            .iter()
+            .map(|asset| asset.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+
+        let mut probes = Vec::new();
+        for asset in &self.project.assets {
+            let index = self.pool.len();
+            let path = PathBuf::from(&asset.path_hint);
+            let kind = match asset.kind {
+                AssetKind::Audio => MediaKind::Audio,
+                AssetKind::Video | AssetKind::Image => MediaKind::Video,
+            };
+            let exists = path.is_file();
+            self.pool.push(PoolEntry {
+                path: path.clone(),
+                kind,
+                asset_id: asset.id,
+                probing: exists,
+                probe: None,
+                duration: (asset.duration > Tick::ZERO).then_some(asset.duration),
+                probe_error: (!exists).then(|| "media file is missing; locate the original file".to_string()),
+                intro_trim: asset.intro_trim,
+                outro_trim: asset.outro_trim,
+                stage1: None,
+                stage2: None,
+                stage2_fraction: 0.0,
+            });
+            if exists {
+                probes.push((index, path, kind));
+            }
+        }
+
+        if let Ok(mut pins) = self.pinned.lock() {
+            for item in self.project.track_items.iter().flat_map(|group| group.items.iter()) {
+                pins.insert(item.id);
+            }
+        }
+        self.history = History::new(self.project.clone());
+        self.page = Page::Media;
+        self.probe_job = if probes.is_empty() {
+            JobState::Done
+        } else {
+            JobState::Running {
+                label: "verifying media".to_string(),
+                fraction: 0.0,
+            }
+        };
+        probes
+    }
+
+    pub fn begin_relink_probe(&mut self, index: usize) -> Option<MediaKind> {
+        let entry = self.pool.get_mut(index)?;
+        if entry.probing {
+            return None;
+        }
+        entry.probing = true;
+        entry.probe_error = None;
+        self.probe_job = JobState::Running {
+            label: "verifying media".to_string(),
+            fraction: 0.0,
+        };
+        Some(entry.kind)
+    }
+
+    /// Accept a located file only when its content fingerprint matches the
+    /// asset saved in the project. Paths may change; source identity may not.
+    pub fn handle_relink_result(&mut self, result: RelinkResult) {
+        let Some(entry) = self.pool.get_mut(result.index) else {
+            return;
+        };
+        let asset_id = entry.asset_id;
+        let expected = self
+            .project
+            .assets
+            .iter()
+            .find(|asset| asset.id == asset_id)
+            .map(|asset| asset.fingerprint);
+        let blank = Fingerprint::new(0, 0, 0, 0);
+        let matches = match (expected, result.fingerprint) {
+            (Some(saved), Some(actual)) if saved != blank => saved == actual,
+            (Some(saved), Some(_)) if saved == blank => result.path == entry.path,
+            _ => false,
+        };
+
+        entry.probing = false;
+        if !matches {
+            entry.probe = None;
+            entry.probe_error = Some(if expected == Some(blank) {
+                "project asset has no saved media fingerprint; restore the source to its original saved path".to_string()
+            } else {
+                "selected file does not match the saved media fingerprint".to_string()
+            });
+        } else {
+            let previous_path = entry.path.clone();
+            entry.path = result.path.clone();
+            entry.duration = result.duration.or(entry.duration);
+            entry.probe = result.probe;
+            entry.probe_error = result.error;
+            if let Some(asset) = self.project.assets.iter_mut().find(|asset| asset.id == asset_id) {
+                asset.path_hint = result.path.to_string_lossy().into_owned();
+                if asset.fingerprint == blank {
+                    if let Some(fingerprint) = result.fingerprint {
+                        asset.fingerprint = fingerprint;
+                    }
+                }
+                if let Some(duration) = result.duration {
+                    asset.duration = duration;
+                }
+            }
+            if previous_path != result.path || expected == Some(blank) {
+                self.is_dirty = true;
+                self.history = History::new(self.project.clone());
+            }
+        }
+        if !self.pool.iter().any(|pool_entry| pool_entry.probing) {
+            self.probe_job = JobState::Done;
+        }
+    }
+
+    pub fn save_project_to(&mut self, path: PathBuf) -> Result<(), String> {
+        self.project.save(&path).map_err(|error| error.to_string())?;
+        self.project_path = Some(path);
+        self.is_dirty = false;
+        Ok(())
+    }
+
+    /// Whether this asset has a saved content fingerprint that can
+    /// safely verify a replacement file during relinking.
+    pub fn can_relink_asset(&self, index: usize) -> bool {
+        let Some(entry) = self.pool.get(index) else {
+            return false;
+        };
+        let blank = Fingerprint::new(0, 0, 0, 0);
+        self.project
+            .assets
+            .iter()
+            .find(|asset| asset.id == entry.asset_id)
+            .map(|asset| asset.fingerprint != blank)
+            .unwrap_or(false)
     }
 
     pub fn video_indices(&self) -> Vec<usize> {
@@ -432,19 +640,29 @@ impl AppState {
     /// Choose which imported audio file is the song. Rejects video
     /// entries and out of range indices.
     pub fn set_song(&mut self, index: usize) -> bool {
-        match self.pool.get(index) {
-            Some(entry) if entry.kind == MediaKind::Audio => {
-                self.song_index = Some(index);
-                true
-            }
-            _ => false,
+        let Some(entry) = self.pool.get(index) else {
+            return false;
+        };
+        if entry.kind != MediaKind::Audio || entry.probing || entry.probe_error.is_some() {
+            return false;
         }
+        if self.has_manual_edits && self.project.song_asset_id.is_some() {
+            return self.song_index == Some(index);
+        }
+        self.song_index = Some(index);
+        self.project.song_asset_id = Some(entry.asset_id);
+        self.history = History::new(self.project.clone());
+        self.is_dirty = true;
+        true
     }
 
     /// Set the intro and outro trims of one video, in seconds,
     /// clamped so the pair never eats the whole file once its
     /// duration is known.
     pub fn set_trims_seconds(&mut self, index: usize, intro_s: f64, outro_s: f64) {
+        if !self.can_edit_source_trims() {
+            return;
+        }
         let Some(entry) = self.pool.get_mut(index) else {
             return;
         };
@@ -462,6 +680,13 @@ impl AppState {
         }
         entry.intro_trim = intro;
         entry.outro_trim = outro;
+        let asset_id = entry.asset_id;
+        if let Some(asset) = self.project.assets.iter_mut().find(|asset| asset.id == asset_id) {
+            asset.intro_trim = intro;
+            asset.outro_trim = outro;
+        }
+        self.history = History::new(self.project.clone());
+        self.is_dirty = true;
     }
 
     // ---------------------------------------------------------- pinning
@@ -481,9 +706,21 @@ impl AppState {
     // --------------------------------------------------------- pipeline
 
     pub fn can_begin_analysis(&self) -> bool {
-        self.song_index.is_some()
-            && !self.video_indices().is_empty()
+        let song_ready = self
+            .song_index
+            .and_then(|index| self.pool.get(index))
+            .map(|entry| !entry.probing && entry.probe_error.is_none() && entry.duration.map(|d| d > Tick::ZERO).unwrap_or(false))
+            .unwrap_or(false);
+        let video_ready = self.video_indices().iter().any(|index| {
+            self.pool
+                .get(*index)
+                .map(|entry| !entry.probing && entry.probe_error.is_none() && entry.duration.map(|d| d > Tick::ZERO).unwrap_or(false))
+                .unwrap_or(false)
+        });
+        song_ready
+            && video_ready
             && !self.pipeline_job.is_running()
+            && !self.has_manual_edits
     }
 
     /// Clone out everything the pipeline worker needs. Also resets
@@ -497,15 +734,16 @@ impl AppState {
         let videos: Vec<PipelineVideo> = self
             .video_indices()
             .into_iter()
-            .map(|index| {
-                let entry = &self.pool[index];
-                PipelineVideo {
-                    index,
-                    asset_id: entry.asset_id,
-                    path: entry.path.clone(),
-                    intro_trim: entry.intro_trim,
-                    outro_trim: entry.outro_trim,
-                }
+            .filter_map(|index| {
+                let entry = self.pool.get(index)?;
+                (!entry.probing && entry.probe_error.is_none() && entry.duration.map(|d| d > Tick::ZERO).unwrap_or(false))
+                    .then(|| PipelineVideo {
+                        index,
+                        asset_id: entry.asset_id,
+                        path: entry.path.clone(),
+                        intro_trim: entry.intro_trim,
+                        outro_trim: entry.outro_trim,
+                    })
             })
             .collect();
         self.pipeline_videos = videos.iter().map(|v| v.index).collect();
@@ -741,7 +979,27 @@ impl AppState {
         self.refresh_pipeline_job();
     }
 
-    fn install_plan(&mut self, plan: Plan) {
+    fn install_plan(&mut self, mut plan: Plan) {
+        // Planner SourceInfo coordinates are rebased to the trimmed source
+        // window. Core Items and the renderer use absolute positions in the
+        // original media file, so restore the asset intro offset here.
+        let intro_offset = |asset_id| {
+            self.project
+                .assets
+                .iter()
+                .find(|asset| asset.id == asset_id)
+                .map(|asset| asset.intro_trim)
+                .unwrap_or(Tick::ZERO)
+        };
+        for clip in &mut plan.clips {
+            clip.source_in = clip.source_in + intro_offset(clip.asset_id);
+        }
+        for command in &mut plan.commands {
+            if let Command::InsertItem { item, .. } = command {
+                item.source_in = item.source_in + intro_offset(item.asset_id);
+            }
+        }
+
         let mut base = self.project.clone();
         if let Some(items) = base.items_mut(VIDEO_TRACK_ID) {
             items.clear();
@@ -749,6 +1007,10 @@ impl AppState {
         match plan.apply(base) {
             Ok(project) => {
                 self.project = project;
+                self.is_dirty = true;
+                // The newest generated plan is the baseline for future edits.
+                self.history = History::new(self.project.clone());
+                self.has_manual_edits = false;
                 self.plan = Some(plan);
                 if let Some(selected) = self.selected_item {
                     if self.project.item(selected).is_none() {
@@ -764,38 +1026,149 @@ impl AppState {
 
     // ------------------------------------------------------------ clips
 
-    /// The clips of the current plan, in timeline order.
+    /// The current project clips, in timeline order. The project is the
+    /// source of truth after user edits; planner state only decorates clips
+    /// that still correspond to generated items.
     pub fn timeline_clips(&self) -> Vec<PlannedClipView> {
-        match &self.plan {
-            Some(plan) => plan
-                .clips
-                .iter()
-                .map(|clip| PlannedClipView {
-                    item_id: clip.item_id,
-                    asset_id: clip.asset_id,
-                    start: clip.start,
-                    duration: clip.duration,
-                    source_in: clip.source_in,
-                    state: clip.state,
-                })
-                .collect(),
-            None => self
-                .project
-                .items(VIDEO_TRACK_ID)
-                .map(|items| {
-                    items
-                        .iter()
-                        .map(|item| PlannedClipView {
+        self.project
+            .items(VIDEO_TRACK_ID)
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| {
+                        let state = self
+                            .plan
+                            .as_ref()
+                            .and_then(|plan| plan.clips.iter().find(|clip| clip.item_id == item.id))
+                            .map(|clip| clip.state)
+                            .unwrap_or(ClipState::Settled);
+                        PlannedClipView {
                             item_id: item.id,
                             asset_id: item.asset_id,
                             start: item.start,
                             duration: item.duration,
                             source_in: item.source_in,
-                            state: ClipState::Settled,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+                            state,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Apply a UI edit through the shared Core command and history path.
+    /// Core validates the candidate before the project snapshot is replaced.
+    pub fn apply_edit(&mut self, command: &Command) -> Result<(), String> {
+        if self.pipeline_running() {
+            return Err("editing is disabled while analysis is running".to_string());
+        }
+        self.history.apply(command).map_err(|error| error.to_string())?;
+        self.project = self.history.project().clone();
+        self.has_manual_edits = true;
+        self.is_dirty = true;
+
+        match command {
+            Command::InsertItem { item, .. } => self.pin_item(item.id),
+            Command::RippleRemoveItem { item_id } | Command::RemoveItem { item_id } => {
+                if self.selected_item == Some(*item_id) {
+                    self.selected_item = None;
+                }
+            }
+            Command::SplitItem { item_id, new_item_id, .. } => {
+                self.pin_item(*item_id);
+                self.pin_item(*new_item_id);
+            }
+            Command::MoveItem { item_id, .. }
+            | Command::ReorderItem { item_id, .. }
+            | Command::TrimItem { item_id, .. }
+            | Command::RippleTrimItem { item_id, .. }
+            | Command::SetItemEnabled { item_id, .. } => self.pin_item(*item_id),
+            Command::SetTrackMuted { .. } | Command::SetTrackLocked { .. } => {}
+        }
+        self.notice = None;
+        Ok(())
+    }
+
+    pub fn can_undo_edit(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    pub fn can_redo_edit(&self) -> bool {
+        self.history.can_redo()
+    }
+
+    pub fn undo_edit(&mut self) -> bool {
+        if self.pipeline_running() || !self.history.undo() {
+            return false;
+        }
+        self.project = self.history.project().clone();
+        if self.selected_item.map(|id| self.project.item(id).is_none()).unwrap_or(false) {
+            self.selected_item = None;
+        }
+        self.has_manual_edits = self.history.can_undo();
+        self.is_dirty = true;
+        true
+    }
+
+    pub fn redo_edit(&mut self) -> bool {
+        if self.pipeline_running() || !self.history.redo() {
+            return false;
+        }
+        self.project = self.history.project().clone();
+        if self.selected_item.map(|id| self.project.item(id).is_none()).unwrap_or(false) {
+            self.selected_item = None;
+        }
+        self.has_manual_edits = true;
+        self.is_dirty = true;
+        true
+    }
+
+    pub fn asset_path(&self, asset_id: AssetId) -> Option<&std::path::Path> {
+        self.project
+            .assets
+            .iter()
+            .find(|asset| asset.id == asset_id)
+            .map(|asset| std::path::Path::new(&asset.path_hint))
+    }
+
+    pub fn asset_duration(&self, asset_id: AssetId) -> Option<Tick> {
+        self.project
+            .assets
+            .iter()
+            .find(|asset| asset.id == asset_id)
+            .map(|asset| asset.duration)
+    }
+
+    /// The usable source interval after intro/outro trims. Unknown duration
+    /// returns None so the UI can retain an unconstrained provisional range.
+    pub fn asset_source_window(&self, asset_id: AssetId) -> Option<(Tick, Tick)> {
+        let asset = self.project.assets.iter().find(|asset| asset.id == asset_id)?;
+        if asset.duration <= Tick::ZERO {
+            return None;
+        }
+        Some((asset.intro_trim, asset.duration - asset.outro_trim))
+    }
+
+    /// Source trims can change only before any timeline items exist.
+    pub fn can_edit_source_trims(&self) -> bool {
+        !self.pipeline_running()
+            && !self.has_manual_edits
+            && self.project.track_items.iter().all(|group| group.items.is_empty())
+    }
+
+    pub fn next_item_id(&self) -> Option<ItemId> {
+        self.project
+            .track_items
+            .iter()
+            .flat_map(|group| group.items.iter().map(|item| item.id))
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+    }
+
+    fn pin_item(&mut self, item_id: ItemId) {
+        if let Ok(mut pinned) = self.pinned.lock() {
+            pinned.insert(item_id);
         }
     }
 
@@ -939,7 +1312,7 @@ pub struct PlannedClipView {
 mod tests {
     use super::*;
     use ricodex_audio::{Beat, SongAnalysis};
-    use ricodex_engine::{BeatGrid, Planner, SceneInfo, SourceInfo};
+    use ricodex_engine::{BeatGrid, PlannedClip, Planner, SceneInfo, SourceInfo};
     use ricodex_media::{MediaBlackRange, MediaScene};
 
     fn fake_analysis(duration_s: f64) -> SourceAnalysis {
@@ -995,6 +1368,301 @@ mod tests {
             error: None,
         });
         state
+    }
+
+    #[test]
+    fn installed_plan_restores_intro_trim_to_absolute_source_coordinates() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        state.set_trims_seconds(video_index, 2.0, 3.0);
+
+        let source_in = Tick::from_seconds(1.0);
+        let duration = Tick::from_seconds(4.0);
+        let plan = Plan {
+            track_id: VIDEO_TRACK_ID,
+            clips: vec![PlannedClip {
+                item_id: 50,
+                asset_id,
+                start: Tick::ZERO,
+                duration,
+                source_in,
+                state: ClipState::Settled,
+            }],
+            commands: vec![Command::InsertItem {
+                track_id: VIDEO_TRACK_ID,
+                item: ricodex_core::Item::new(
+                    50,
+                    asset_id,
+                    Tick::ZERO,
+                    duration,
+                    source_in,
+                ),
+            }],
+        };
+
+        state.install_plan(plan);
+
+        assert_eq!(state.project.item(50).unwrap().source_in, Tick::from_seconds(3.0));
+        assert_eq!(
+            state.plan.as_ref().unwrap().clips[0].source_in,
+            Tick::from_seconds(3.0)
+        );
+        assert!(!state.can_edit_source_trims());
+    }
+
+    #[test]
+    fn source_trims_cannot_change_after_a_timeline_exists() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        state.set_trims_seconds(video_index, 2.0, 3.0);
+        let asset_id = state.pool[video_index].asset_id;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+            51,
+            asset_id,
+            Tick::ZERO,
+            Tick::from_seconds(4.0),
+            Tick::from_seconds(2.0),
+        ));
+        state.history = History::new(state.project.clone());
+
+        assert!(!state.can_edit_source_trims());
+        state.set_trims_seconds(video_index, 5.0, 1.0);
+        let asset = state.project.assets.iter().find(|asset| asset.id == asset_id).unwrap();
+        assert_eq!(asset.intro_trim, Tick::from_seconds(2.0));
+        assert_eq!(asset.outro_trim, Tick::from_seconds(3.0));
+    }
+
+    #[test]
+    fn app_edits_use_core_history_and_refresh_timeline_views() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+            10,
+            asset_id,
+            Tick::ZERO,
+            Tick::from_seconds(8.0),
+            Tick::ZERO,
+        ));
+        state.history = History::new(state.project.clone());
+        state.selected_item = Some(10);
+        let song_index = state
+            .pool
+            .iter()
+            .position(|entry| entry.kind == MediaKind::Audio)
+            .unwrap();
+        state.set_song(song_index);
+        assert!(state.can_begin_analysis());
+
+        state
+            .apply_edit(&Command::SplitItem {
+                item_id: 10,
+                at: Tick::from_seconds(4.0),
+                new_item_id: 11,
+            })
+            .unwrap();
+
+        assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 2);
+        assert_eq!(state.timeline_clips().len(), 2);
+        assert_eq!(state.selected_item, Some(10));
+        assert!(state.is_pinned(10));
+        assert!(state.is_pinned(11));
+        assert!(state.has_manual_edits);
+        assert!(!state.can_begin_analysis());
+
+        assert!(state.undo_edit());
+        assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 1);
+        assert_eq!(state.timeline_clips().len(), 1);
+        assert_eq!(state.selected_item, Some(10));
+        assert!(!state.has_manual_edits);
+        assert!(state.can_begin_analysis());
+
+        assert!(state.redo_edit());
+        assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 2);
+        assert_eq!(state.timeline_clips().len(), 2);
+        assert!(state.has_manual_edits);
+        assert!(!state.can_begin_analysis());
+    }
+
+    #[test]
+    fn app_rejects_edits_while_analysis_is_running() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+            10,
+            asset_id,
+            Tick::ZERO,
+            Tick::from_seconds(4.0),
+            Tick::ZERO,
+        ));
+        state.history = History::new(state.project.clone());
+        state.pipeline_job = JobState::Running {
+            label: "analysing".to_string(),
+            fraction: 0.5,
+        };
+
+        let before = state.project.clone();
+        let result = state.apply_edit(&Command::TrimItem {
+            item_id: 10,
+            new_start: None,
+            new_source_in: Some(Tick::from_seconds(1.0)),
+            new_duration: None,
+        });
+        assert!(result.is_err());
+        assert_eq!(state.project, before);
+    }
+
+    #[test]
+    fn save_restore_preserves_song_timeline_and_source_trims() {
+        let mut state = state_with_media();
+        let audio_index = state
+            .pool
+            .iter()
+            .position(|entry| entry.kind == MediaKind::Audio)
+            .unwrap();
+        assert!(state.set_song(audio_index));
+
+        let video_index = state.video_indices()[0];
+        let video_asset_id = state.pool[video_index].asset_id;
+        state.set_trims_seconds(video_index, 1.25, 2.0);
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+            42,
+            video_asset_id,
+            Tick::ZERO,
+            Tick::from_seconds(5.0),
+            Tick::from_seconds(1.5),
+        ));
+
+        let path = std::env::temp_dir().join(format!(
+            "ricodex-app-project-{}.rdx",
+            std::process::id()
+        ));
+        state.save_project_to(path.clone()).unwrap();
+        assert!(!state.is_dirty);
+
+        let loaded = Project::load(&path).unwrap();
+        assert_eq!(loaded.song_asset_id, Some(state.pool[audio_index].asset_id));
+        assert_eq!(loaded.items(VIDEO_TRACK_ID).unwrap().len(), 1);
+        assert_eq!(loaded.assets.iter().find(|asset| asset.id == video_asset_id).unwrap().intro_trim,
+                   Tick::from_seconds(1.25));
+        assert_eq!(loaded.assets.iter().find(|asset| asset.id == video_asset_id).unwrap().outro_trim,
+                   Tick::from_seconds(2.0));
+
+        let mut restored = AppState::new();
+        let probes = restored.restore_project(loaded, path.clone());
+        assert!(probes.is_empty(), "the test fixtures deliberately reference missing media paths");
+        assert_eq!(restored.song_index, Some(audio_index));
+        assert_eq!(restored.timeline_clips().len(), 1);
+        assert!(restored.has_manual_edits);
+        assert!(restored.is_pinned(42));
+        assert!(restored.pool.iter().all(|entry| entry.probe_error.is_some()));
+        assert!(!restored.can_begin_analysis());
+        assert_eq!(restored.project_path, Some(path.clone()));
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn relinking_requires_the_saved_content_fingerprint() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        let expected = Fingerprint::new(100, 1, 2, 3);
+        state
+            .project
+            .assets
+            .iter_mut()
+            .find(|asset| asset.id == asset_id)
+            .unwrap()
+            .fingerprint = expected;
+        state.history = History::new(state.project.clone());
+
+        let original_path = state.pool[video_index].path.clone();
+        assert_eq!(state.begin_relink_probe(video_index), Some(MediaKind::Video));
+        state.handle_relink_result(RelinkResult {
+            index: video_index,
+            path: PathBuf::from("/tmp/unrelated.mp4"),
+            fingerprint: Some(Fingerprint::new(200, 4, 5, 6)),
+            duration: Some(Tick::from_seconds(20.0)),
+            probe: None,
+            error: None,
+        });
+        assert_eq!(state.pool[video_index].path, original_path);
+        assert!(state.pool[video_index]
+            .probe_error
+            .as_deref()
+            .unwrap()
+            .contains("does not match"));
+
+        assert_eq!(state.begin_relink_probe(video_index), Some(MediaKind::Video));
+        state.handle_relink_result(RelinkResult {
+            index: video_index,
+            path: PathBuf::from("/tmp/matching-copy.mp4"),
+            fingerprint: Some(expected),
+            duration: Some(Tick::from_seconds(20.0)),
+            probe: None,
+            error: None,
+        });
+        assert_eq!(
+            state.pool[video_index].path,
+            PathBuf::from("/tmp/matching-copy.mp4")
+        );
+        assert_eq!(
+            state.project.assets.iter().find(|asset| asset.id == asset_id).unwrap().path_hint,
+            "/tmp/matching-copy.mp4"
+        );
+        assert!(state.is_dirty);
+    }
+
+    #[test]
+    fn relinking_refuses_assets_without_a_saved_fingerprint() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let original_path = state.pool[video_index].path.clone();
+        assert!(!state.can_relink_asset(video_index));
+        assert_eq!(state.begin_relink_probe(video_index), Some(MediaKind::Video));
+        state.handle_relink_result(RelinkResult {
+            index: video_index,
+            path: PathBuf::from("/tmp/unverifiable-replacement.mp4"),
+            fingerprint: Some(Fingerprint::new(500, 1, 2, 3)),
+            duration: Some(Tick::from_seconds(20.0)),
+            probe: None,
+            error: None,
+        });
+        assert_eq!(state.pool[video_index].path, original_path);
+        assert!(state.pool[video_index]
+            .probe_error
+            .as_deref()
+            .unwrap()
+            .contains("no saved media fingerprint"));
+        assert!(!state.can_relink_asset(video_index));
+    }
+
+    #[test]
+    fn original_path_can_establish_a_missing_fingerprint() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        let original_path = state.pool[video_index].path.clone();
+        let fingerprint = Fingerprint::new(700, 7, 8, 9);
+        assert!(!state.can_relink_asset(video_index));
+        assert_eq!(state.begin_relink_probe(video_index), Some(MediaKind::Video));
+        state.handle_relink_result(RelinkResult {
+            index: video_index,
+            path: original_path.clone(),
+            fingerprint: Some(fingerprint),
+            duration: Some(Tick::from_seconds(20.0)),
+            probe: None,
+            error: None,
+        });
+        assert_eq!(state.pool[video_index].path, original_path);
+        assert!(state.can_relink_asset(video_index));
+        assert_eq!(
+            state.project.assets.iter().find(|asset| asset.id == asset_id).unwrap().fingerprint,
+            fingerprint
+        );
     }
 
     #[test]

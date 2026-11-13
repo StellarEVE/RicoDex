@@ -15,13 +15,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-use ricodex_core::{ItemId, Project};
+use ricodex_core::{AssetKind, ItemId, Project};
 use ricodex_engine::{BeatGrid, Planner, SourceInfo};
 use ricodex_media::AnalysisCache;
 
 use crate::state::{
     trimmed_source, ExportMsg, MediaKind, PipelineMsg, PipelineRequest,
-    ProbeResult, VIDEO_TRACK_ID,
+    ProbeResult, RelinkResult, VIDEO_TRACK_ID,
 };
 
 /// Stage 0 for one imported file: the content fingerprint, plus the
@@ -43,6 +43,35 @@ pub fn run_probe(index: usize, path: PathBuf, kind: MediaKind, tx: Sender<ProbeR
     };
     let _ = tx.send(ProbeResult {
         index,
+        fingerprint,
+        duration,
+        probe,
+        error,
+    });
+}
+
+/// Verify a media path restored from a project or selected by the user.
+/// Content identity is checked by AppState before the path is accepted.
+pub fn run_relink_probe(
+    index: usize,
+    path: PathBuf,
+    kind: MediaKind,
+    tx: Sender<RelinkResult>,
+) {
+    let fingerprint = ricodex_media::compute_fingerprint(&path).ok();
+    let (duration, probe, error) = match kind {
+        MediaKind::Video => match ricodex_media::probe(&path) {
+            Ok(probe) => (Some(probe.duration), Some(probe), None),
+            Err(e) => (None, None, Some(format!("probe failed: {e}"))),
+        },
+        MediaKind::Audio => match ricodex_audio::decode_file(&path) {
+            Ok(decoded) => (Some(decoded.duration()), None, None),
+            Err(e) => (None, None, Some(format!("audio read failed: {e}"))),
+        },
+    };
+    let _ = tx.send(RelinkResult {
+        index,
+        path,
         fingerprint,
         duration,
         probe,
@@ -212,7 +241,55 @@ pub fn run_export(project: Project, output_path: PathBuf, tx: Sender<ExportMsg>)
     let mut progress = |fraction: f32| {
         let _ = tx.send(ExportMsg::Progress { fraction });
     };
-    match ricodex_render::render_sequential(&project, VIDEO_TRACK_ID, &output_path, &mut progress) {
+
+    // The selected song is the soundtrack for this export slice. Decode
+    // it here, at the App orchestration boundary, then pass plain stereo
+    // PCM to Render. Projects without a selected song remain video-only.
+    let result = match project.song_asset_id {
+        Some(song_id) => match project.assets.iter().find(|asset| asset.id == song_id) {
+            Some(asset) if asset.kind == AssetKind::Audio => {
+                let path = PathBuf::from(&asset.path_hint);
+                match ricodex_audio::decode_stereo_file(&path) {
+                    Ok(decoded) => ricodex_render::render_sequential_with_audio(
+                        &project,
+                        VIDEO_TRACK_ID,
+                        &output_path,
+                        Some(ricodex_render::StereoAudioInput {
+                            interleaved_samples: &decoded.samples,
+                            sample_rate: decoded.sample_rate,
+                        }),
+                        &mut progress,
+                    ),
+                    Err(error) => {
+                        let _ = tx.send(ExportMsg::Failed {
+                            message: format!("selected song could not be decoded: {error}"),
+                        });
+                        return;
+                    }
+                }
+            }
+            Some(_) => {
+                let _ = tx.send(ExportMsg::Failed {
+                    message: "selected song asset is not audio".to_string(),
+                });
+                return;
+            }
+            None => {
+                let _ = tx.send(ExportMsg::Failed {
+                    message: format!("selected song asset {song_id} is missing from the project"),
+                });
+                return;
+            }
+        },
+        None => ricodex_render::render_sequential(
+            &project,
+            VIDEO_TRACK_ID,
+            &output_path,
+            &mut progress,
+        ),
+    };
+
+    match result {
         Ok(outcome) => {
             let _ = tx.send(ExportMsg::Finished {
                 encoder_name: outcome.encoder_name,

@@ -10,7 +10,7 @@ use crate::settings::{ExportSettings, GenerationSettings};
 use crate::time::Tick;
 
 /// The project file schema version written by this build.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 pub type AssetId = u64;
 pub type TrackId = u64;
@@ -58,6 +58,12 @@ pub struct Asset {
     /// Media duration, when known. Assets are probed before use, and a
     /// zero duration marks an asset that has not been probed yet.
     pub duration: Tick,
+    /// Source trims applied before footage analysis. Defaulted when
+    /// migrating schema-1 projects.
+    #[serde(default)]
+    pub intro_trim: Tick,
+    #[serde(default)]
+    pub outro_trim: Tick,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +141,9 @@ pub struct TrackItems {
 pub struct Project {
     pub schema_version: u32,
     pub assets: Vec<Asset>,
+    /// The audio asset selected as the generation song, if one is selected.
+    #[serde(default)]
+    pub song_asset_id: Option<AssetId>,
     pub tracks: Vec<Track>,
     /// Items grouped per track. Every track has exactly one entry here.
     pub track_items: Vec<TrackItems>,
@@ -147,6 +156,7 @@ impl Project {
         Project {
             schema_version: SCHEMA_VERSION,
             assets: Vec::new(),
+            song_asset_id: None,
             tracks: Vec::new(),
             track_items: Vec::new(),
             export_settings: ExportSettings::default(),
@@ -212,6 +222,24 @@ impl Project {
             if !asset_ids.insert(asset.id) {
                 return Err(ModelError::DuplicateAssetId { id: asset.id });
             }
+            if asset.intro_trim < Tick::ZERO || asset.outro_trim < Tick::ZERO {
+                return Err(ModelError::NegativeAssetTrim { asset_id: asset.id });
+            }
+            if asset.duration > Tick::ZERO
+                && asset.intro_trim + asset.outro_trim >= asset.duration
+            {
+                return Err(ModelError::AssetTrimExceedsDuration { asset_id: asset.id });
+            }
+        }
+
+        if let Some(song_id) = self.song_asset_id {
+            match self.assets.iter().find(|asset| asset.id == song_id) {
+                None => return Err(ModelError::UnknownSongAsset { asset_id: song_id }),
+                Some(asset) if asset.kind != AssetKind::Audio => {
+                    return Err(ModelError::SongAssetNotAudio { asset_id: song_id });
+                }
+                Some(_) => {}
+            }
         }
 
         let mut track_ids = HashSet::new();
@@ -253,6 +281,20 @@ impl Project {
                         asset_id: item.asset_id,
                     });
                 }
+                if let Some(asset) = self.assets.iter().find(|asset| asset.id == item.asset_id) {
+                    if asset.duration > Tick::ZERO {
+                        let source_end = asset.duration - asset.outro_trim;
+                        if item.source_in < asset.intro_trim
+                            || item.source_in > source_end
+                            || item.duration > source_end - item.source_in
+                        {
+                            return Err(ModelError::ItemOutsideAssetTrimWindow {
+                                item_id: item.id,
+                                asset_id: item.asset_id,
+                            });
+                        }
+                    }
+                }
                 if index > 0 {
                     let previous = &items[index - 1];
                     if item.start < previous.start {
@@ -286,6 +328,11 @@ impl Default for Project {
 pub enum ModelError {
     UnsupportedSchema { found: u32 },
     DuplicateAssetId { id: AssetId },
+    UnknownSongAsset { asset_id: AssetId },
+    SongAssetNotAudio { asset_id: AssetId },
+    NegativeAssetTrim { asset_id: AssetId },
+    AssetTrimExceedsDuration { asset_id: AssetId },
+    ItemOutsideAssetTrimWindow { item_id: ItemId, asset_id: AssetId },
     DuplicateTrackId { id: TrackId },
     DuplicateItemId { id: ItemId },
     TrackItemsMismatch,
@@ -304,6 +351,11 @@ impl std::fmt::Display for ModelError {
                 write!(f, "unsupported schema version {found}")
             }
             ModelError::DuplicateAssetId { id } => write!(f, "duplicate asset id {id}"),
+            ModelError::UnknownSongAsset { asset_id } => write!(f, "song selection references unknown asset {asset_id}"),
+            ModelError::SongAssetNotAudio { asset_id } => write!(f, "selected song asset {asset_id} is not audio"),
+            ModelError::NegativeAssetTrim { asset_id } => write!(f, "asset {asset_id} has a negative source trim"),
+            ModelError::AssetTrimExceedsDuration { asset_id } => write!(f, "asset {asset_id} source trims leave no usable duration"),
+            ModelError::ItemOutsideAssetTrimWindow { item_id, asset_id } => write!(f, "item {item_id} uses source frames outside asset {asset_id}'s trimmed source window"),
             ModelError::DuplicateTrackId { id } => write!(f, "duplicate track id {id}"),
             ModelError::DuplicateItemId { id } => write!(f, "duplicate item id {id}"),
             ModelError::TrackItemsMismatch => {

@@ -64,6 +64,8 @@ fn project_for(sources: &[SourceInfo]) -> Project {
             path_hint: format!("source{}.mp4", s.asset_id),
             kind: AssetKind::Video,
             duration: s.duration,
+            intro_trim: Tick::ZERO,
+            outro_trim: Tick::ZERO,
         });
     }
     project.add_track(Track::new(1, TrackKind::Video, "V1"));

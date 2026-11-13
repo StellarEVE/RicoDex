@@ -9,8 +9,9 @@
 //! so the output runs item A plus item B minus the transition
 //! duration, with the incoming clip starting under the outgoing
 //! one. The request's effect stack applies to every frame. Audio
-//! is out of scope: the output is video only. Wider projects
-//! (more tracks, more items, per clip effects) are later slices
+//! remains out of scope for this two-clip transition renderer; the
+//! sequential application export has a separate selected-song AAC path.
+//! Wider projects (more tracks, more items, per clip effects) are later slices
 //! building on this path, not changes to it.
 //!
 //! Frames are decoded through ricodex-platform, composited through
@@ -32,6 +33,14 @@ use crate::error::RenderError;
 use crate::frame::Frame;
 use crate::gpu::GpuCompositor;
 use crate::transition::{TransitionKind, TransitionParams};
+
+/// Stereo source audio supplied to the sequential export. Samples are
+/// interleaved left/right f32 values at the source sample rate.
+#[derive(Clone, Copy, Debug)]
+pub struct StereoAudioInput<'a> {
+    pub interleaved_samples: &'a [f32],
+    pub sample_rate: u32,
+}
 
 /// The transition to render between the two items: its form, its
 /// parameters, and its duration on the timeline.
@@ -339,26 +348,52 @@ pub struct SequentialOutcome {
 
 /// The plain sequential export: every enabled item on one video
 /// track, in timeline order, decoded and encoded back to back with
-/// hard cuts and no transitions or effects. This is the export the
-/// app drives in this slice: it covers any number of items, which
-/// [`render_project`] deliberately does not.
+/// hard cuts and no transitions or effects. The optional soundtrack
+/// is supplied by the project-selected song and is mixed as stereo AAC.
 ///
 /// The enabled items must form one contiguous run: each item must
 /// start exactly where the previous one ends. A gap, including the
 /// gap a disabled item leaves, is rejected rather than silently
 /// filled, so the output duration is always the run's duration.
-/// Audio is out of scope, exactly as in [`render_project`]: the
-/// output is video only. `progress` fires after every encoded
-/// frame with the fraction complete, ending at exactly 1.0.
+/// progress fires after every encoded video frame with the fraction
+/// complete, ending at exactly 1.0.
 pub fn render_sequential(
     project: &Project,
     track_id: TrackId,
     output_path: &std::path::Path,
     progress: &mut dyn FnMut(f32),
 ) -> Result<SequentialOutcome, RenderError> {
+    render_sequential_with_audio(project, track_id, output_path, None, progress)
+}
+
+/// Sequential hard-cut export with an optional stereo music bed.
+/// The supplied audio is resampled to 48 kHz, starts at output time
+/// zero, and is truncated or silence-padded to the video run duration.
+pub fn render_sequential_with_audio(
+    project: &Project,
+    track_id: TrackId,
+    output_path: &std::path::Path,
+    audio: Option<StereoAudioInput<'_>>,
+    progress: &mut dyn FnMut(f32),
+) -> Result<SequentialOutcome, RenderError> {
+    const OUTPUT_AUDIO_RATE: u32 = 48_000;
+
     project.validate().map_err(|e| RenderError::BadProject {
         reason: e.to_string(),
     })?;
+    if let Some(input) = audio {
+        if input.sample_rate == 0 || input.interleaved_samples.len() % 2 != 0 {
+            return Err(RenderError::BadProject {
+                reason: "selected song must contain interleaved stereo samples at a valid sample rate".to_string(),
+            });
+        }
+        if input.interleaved_samples.is_empty() {
+            return Err(RenderError::BadProject {
+                reason: "selected song decoded to no audio samples".to_string(),
+            });
+        }
+    }
+
     let track = project.track(track_id).ok_or_else(|| RenderError::BadProject {
         reason: format!("no track {track_id}"),
     })?;
@@ -398,17 +433,39 @@ pub fn render_sequential(
         });
     }
 
-    let mut encoder = ricodex_platform::VideoEncoder::create(
-        output_path,
-        width,
-        height,
-        fps_num,
-        fps_den,
-        settings.video_bitrate_kbps,
-    )?;
+    // Audio must match the output frame schedule, not the unrounded
+    // tick duration: the encoded video duration is total_frames / fps.
+    let total_audio_samples = if audio.is_some() {
+        ((total_frames as i128 * OUTPUT_AUDIO_RATE as i128 * fps_den as i128)
+            / fps_num as i128)
+            .max(0) as usize
+    } else {
+        0
+    };
+    let mut encoder = if audio.is_some() {
+        ricodex_platform::VideoEncoder::create_with_audio(
+            output_path,
+            width,
+            height,
+            fps_num,
+            fps_den,
+            settings.video_bitrate_kbps,
+            settings.audio_bitrate_kbps,
+        )?
+    } else {
+        ricodex_platform::VideoEncoder::create(
+            output_path,
+            width,
+            height,
+            fps_num,
+            fps_den,
+            settings.video_bitrate_kbps,
+        )?
+    };
     let encoder_name = encoder.encoder_name().to_string();
 
     let mut written = 0usize;
+    let mut audio_cursor = 0usize;
     for item in &items {
         let asset = project
             .assets
@@ -472,8 +529,6 @@ pub fn render_sequential(
                     None => break,
                 }
             }
-            // The first decoded frame can sit past the first slot when
-            // a seek lands late; it is still the best picture for it.
             if last.is_none() {
                 if let Some((_, frame)) = &pending {
                     last = Some(frame.clone());
@@ -484,6 +539,47 @@ pub fn render_sequential(
             })?;
             encoder.encode_rgb24(&frame.to_rgb24())?;
             written += 1;
+
+            if let Some(input) = audio {
+                // Derive the audio boundary from the absolute output
+                // frame index using integer rational arithmetic. This
+                // avoids accumulating per-frame rounding drift.
+                let next_sample = ((written as i128
+                    * OUTPUT_AUDIO_RATE as i128
+                    * fps_den as i128)
+                    / fps_num as i128)
+                    .max(0) as usize;
+                let audio_end = next_sample.min(total_audio_samples);
+                if audio_end > audio_cursor {
+                    let source_frames = input.interleaved_samples.len() / 2;
+                    let mut chunk = Vec::with_capacity((audio_end - audio_cursor) * 2);
+                    for output_sample in audio_cursor..audio_end {
+                        let source_numerator =
+                            output_sample as u128 * input.sample_rate as u128;
+                        let source_index =
+                            (source_numerator / OUTPUT_AUDIO_RATE as u128) as usize;
+                        let remainder =
+                            (source_numerator % OUTPUT_AUDIO_RATE as u128) as f32;
+                        let fraction = remainder / OUTPUT_AUDIO_RATE as f32;
+                        for channel in 0..2 {
+                            let a = if source_index < source_frames {
+                                input.interleaved_samples[source_index * 2 + channel]
+                            } else {
+                                0.0
+                            };
+                            let b = if source_index + 1 < source_frames {
+                                input.interleaved_samples[(source_index + 1) * 2 + channel]
+                            } else {
+                                0.0
+                            };
+                            chunk.push(a + (b - a) * fraction);
+                        }
+                    }
+                    encoder.encode_stereo_audio(&chunk)?;
+                    audio_cursor = audio_end;
+                }
+            }
+
             progress(written as f32 / total_frames as f32);
         }
     }
