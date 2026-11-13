@@ -567,6 +567,7 @@ impl AppState {
         let blank = Fingerprint::new(0, 0, 0, 0);
         let matches = match (expected, result.fingerprint) {
             (Some(saved), Some(actual)) if saved != blank => saved == actual,
+            (Some(saved), Some(_)) if saved == blank => result.path == entry.path,
             _ => false,
         };
 
@@ -574,7 +575,7 @@ impl AppState {
         if !matches {
             entry.probe = None;
             entry.probe_error = Some(if expected == Some(blank) {
-                "project asset has no saved media fingerprint; re-import this file to establish media identity".to_string()
+                "project asset has no saved media fingerprint; restore the source to its original saved path".to_string()
             } else {
                 "selected file does not match the saved media fingerprint".to_string()
             });
@@ -1537,6 +1538,31 @@ mod tests {
             .unwrap()
             .contains("no saved media fingerprint"));
         assert!(!state.can_relink_asset(video_index));
+    }
+
+    #[test]
+    fn original_path_can_establish_a_missing_fingerprint() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        let original_path = state.pool[video_index].path.clone();
+        let fingerprint = Fingerprint::new(700, 7, 8, 9);
+        assert!(!state.can_relink_asset(video_index));
+        assert_eq!(state.begin_relink_probe(video_index), Some(MediaKind::Video));
+        state.handle_relink_result(RelinkResult {
+            index: video_index,
+            path: original_path.clone(),
+            fingerprint: Some(fingerprint),
+            duration: Some(Tick::from_seconds(20.0)),
+            probe: None,
+            error: None,
+        });
+        assert_eq!(state.pool[video_index].path, original_path);
+        assert!(state.can_relink_asset(video_index));
+        assert_eq!(
+            state.project.assets.iter().find(|asset| asset.id == asset_id).unwrap().fingerprint,
+            fingerprint
+        );
     }
 
     #[test]

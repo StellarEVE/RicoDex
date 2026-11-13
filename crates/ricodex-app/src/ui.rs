@@ -607,7 +607,7 @@ impl EditorApp {
                                     }
                                 } else {
                                     ui.label(
-                                        RichText::new("Cannot relink safely: this project has no saved fingerprint. Re-import the source.")
+                                        RichText::new("Cannot relink safely: no fingerprint was saved. Restore the source to its original path.")
                                             .color(WARN)
                                             .small(),
                                     );
