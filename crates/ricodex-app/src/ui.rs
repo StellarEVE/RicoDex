@@ -803,7 +803,7 @@ impl EditorApp {
                 }
 
                 let command = if delete_requested {
-                    Some(Command::RemoveItem { item_id: clip.item_id })
+                    Some(Command::RippleRemoveItem { item_id: clip.item_id })
                 } else if split_requested {
                     self.state.next_item_id().map(|new_item_id| Command::SplitItem {
                         item_id: clip.item_id,
@@ -811,9 +811,8 @@ impl EditorApp {
                         new_item_id,
                     })
                 } else if new_duration.is_some() || new_source_in.is_some() {
-                    Some(Command::TrimItem {
+                    Some(Command::RippleTrimItem {
                         item_id: clip.item_id,
-                        new_start: None,
                         new_source_in,
                         new_duration,
                     })
@@ -826,7 +825,10 @@ impl EditorApp {
                         Command::SplitItem { new_item_id, .. } => Some(*new_item_id),
                         _ => None,
                     };
-                    let removes_item = matches!(&command, Command::RemoveItem { .. });
+                    let removes_item = matches!(
+                        &command,
+                        Command::RippleRemoveItem { .. } | Command::RemoveItem { .. }
+                    );
                     match self.state.apply_edit(&command) {
                         Ok(()) => {
                             self.state.selected_item = split_id.or_else(|| {
