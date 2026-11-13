@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use egui::{Color32, CornerRadius, RichText, Stroke};
 
-use ricodex_core::{Command, Project, Tick};
+use ricodex_core::{Command, ItemId, Project, Tick};
 use ricodex_engine::ClipState;
 
 use crate::jobs;
@@ -90,6 +90,7 @@ pub fn apply_theme(ctx: &egui::Context) {
 
 pub struct EditorApp {
     state: AppState,
+    dragging_item: Option<ItemId>,
     probe_tx: Sender<ProbeResult>,
     probe_rx: Receiver<ProbeResult>,
     relink_tx: Sender<RelinkResult>,
@@ -127,6 +128,7 @@ impl EditorApp {
         let shot_path = std::env::var("RICODEX_SHOT").ok().map(PathBuf::from);
         let mut app = EditorApp {
             state,
+            dragging_item: None,
             probe_tx,
             probe_rx,
             relink_tx,
@@ -312,6 +314,73 @@ impl EditorApp {
             }
             for msg in drained {
                 self.state.handle_export_msg(msg);
+            }
+        }
+
+        if allow_reorder {
+            if let Some(dragged_item_id) = self.dragging_item {
+                if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
+                    if rect.contains(pointer) {
+                        let before_item_id = clips
+                            .iter()
+                            .filter(|clip| clip.item_id != dragged_item_id)
+                            .find(|clip| {
+                                let midpoint = rect.left()
+                                    + ((clip.start.to_seconds()
+                                        + clip.duration.to_seconds() * 0.5)
+                                        / total_s) as f32
+                                        * rect.width();
+                                pointer.x < midpoint
+                            })
+                            .map(|clip| clip.item_id);
+                        let marker_x = before_item_id
+                            .and_then(|target| clips.iter().find(|clip| clip.item_id == target))
+                            .map(|target| {
+                                rect.left()
+                                    + (target.start.to_seconds() / total_s) as f32
+                                        * rect.width()
+                            })
+                            .unwrap_or(rect.right() - 2.0);
+                        painter.line_segment(
+                            [
+                                egui::pos2(marker_x, rect.top() + 2.0),
+                                egui::pos2(marker_x, rect.bottom() - 2.0),
+                            ],
+                            Stroke::new(2.0, TEAL),
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some((dragged_item_id, pointer)) = completed_drag {
+            if allow_reorder && rect.contains(pointer) {
+                let before_item_id = clips
+                    .iter()
+                    .filter(|clip| clip.item_id != dragged_item_id)
+                    .find(|clip| {
+                        let midpoint = rect.left()
+                            + ((clip.start.to_seconds()
+                                + clip.duration.to_seconds() * 0.5)
+                                / total_s) as f32
+                                * rect.width();
+                        pointer.x < midpoint
+                    })
+                    .map(|clip| clip.item_id);
+                let current_before = clips
+                    .iter()
+                    .position(|clip| clip.item_id == dragged_item_id)
+                    .and_then(|position| clips.get(position + 1))
+                    .map(|clip| clip.item_id);
+                if before_item_id != current_before {
+                    match self.state.apply_edit(&Command::ReorderItem {
+                        item_id: dragged_item_id,
+                        before_item_id,
+                    }) {
+                        Ok(()) => self.state.selected_item = Some(dragged_item_id),
+                        Err(error) => self.state.notice = Some(error),
+                    }
+                }
             }
         }
     }
@@ -793,7 +862,7 @@ impl EditorApp {
         }
         ui.separator();
 
-        self.timeline_strip(ui, 72.0);
+        self.timeline_strip(ui, 72.0, false);
         ui.label(
             RichText::new(
                 "hatched and dimmed = provisional, plain = settled, circle at the top right of a clip toggles its pin",
@@ -863,7 +932,12 @@ impl EditorApp {
             }
         });
 
-        self.timeline_strip(ui, 110.0);
+        self.timeline_strip(ui, 110.0, true);
+        ui.label(
+            RichText::new("Drag clips left or right to reorder. Reordered clips are kept contiguous for the current sequential export path.")
+                .color(SILVER_DIM)
+                .small(),
+        );
         ui.separator();
         let selected = self
             .state
@@ -1141,10 +1215,10 @@ impl EditorApp {
 
 impl EditorApp {
     /// The timeline as a horizontal strip of clip blocks sized by
-    /// duration. Provisional clips are dimmed and hatched, settled
-    /// clips plain; the circle at a block's top right toggles its
+    /// duration. On the Edit page, dragging a block reorders the
+    /// sequential cut. The circle at a block's top right toggles its
     /// pin, and clicking the body selects the clip.
-    fn timeline_strip(&mut self, ui: &mut egui::Ui, height: f32) {
+    fn timeline_strip(&mut self, ui: &mut egui::Ui, height: f32, allow_reorder: bool) {
         let clips = self.state.timeline_clips();
         let total = self.state.timeline_total();
         let width = ui.available_width();
@@ -1167,6 +1241,7 @@ impl EditorApp {
             return;
         }
         let total_s = total.to_seconds();
+        let mut completed_drag: Option<(ItemId, egui::Pos2)> = None;
         for clip in &clips {
             let x0 = rect.left()
                 + (clip.start.to_seconds() / total_s) as f32 * rect.width();
@@ -1177,8 +1252,22 @@ impl EditorApp {
                 egui::pos2(x0 + 1.0, rect.top() + 4.0),
                 egui::pos2((x1 - 1.0).max(x0 + 4.0), rect.bottom() - 4.0),
             );
+            let sense = if allow_reorder && !self.state.pipeline_running() {
+                egui::Sense::click_and_drag()
+            } else {
+                egui::Sense::click()
+            };
             let response =
-                ui.interact(block, ui.scope_id().with(("clip", clip.item_id)), egui::Sense::click());
+                ui.interact(block, ui.scope_id().with(("clip", clip.item_id)), sense);
+            if response.drag_started() {
+                self.dragging_item = Some(clip.item_id);
+            }
+            if response.drag_stopped() && self.dragging_item == Some(clip.item_id) {
+                completed_drag = ui
+                    .input(|input| input.pointer.interact_pos())
+                    .map(|position| (clip.item_id, position));
+                self.dragging_item = None;
+            }
             let pinned = self.state.is_pinned(clip.item_id);
             let selected = self.state.selected_item == Some(clip.item_id);
 

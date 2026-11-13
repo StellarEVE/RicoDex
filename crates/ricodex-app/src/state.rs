@@ -1041,6 +1041,7 @@ impl AppState {
                 self.pin_item(*new_item_id);
             }
             Command::MoveItem { item_id, .. }
+            | Command::ReorderItem { item_id, .. }
             | Command::TrimItem { item_id, .. }
             | Command::RippleTrimItem { item_id, .. }
             | Command::SetItemEnabled { item_id, .. } => self.pin_item(*item_id),

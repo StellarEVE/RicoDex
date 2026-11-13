@@ -25,6 +25,13 @@ pub enum Command {
         at: Tick,
         new_item_id: ItemId,
     },
+    /// Reorder an item within its track, placing it immediately before the
+    /// target item (or at the end when None). Reflow the track into a
+    /// contiguous sequence while preserving each item's source range.
+    ReorderItem {
+        item_id: ItemId,
+        before_item_id: Option<ItemId>,
+    },
     /// Move an item to a new timeline start, optionally onto another track.
     MoveItem {
         item_id: ItemId,
@@ -58,6 +65,7 @@ pub enum CommandError {
     UnknownTrack { track_id: TrackId },
     TrackLocked { track_id: TrackId },
     InvalidSplitPoint { item_id: ItemId },
+    InvalidReorderTarget { item_id: ItemId, target_item_id: ItemId },
     Invalid(ModelError),
 }
 
@@ -71,6 +79,9 @@ impl std::fmt::Display for CommandError {
             }
             CommandError::InvalidSplitPoint { item_id } => {
                 write!(f, "split point must be inside item {item_id}")
+            }
+            CommandError::InvalidReorderTarget { item_id, target_item_id } => {
+                write!(f, "item {item_id} cannot be reordered relative to item {target_item_id} on another track")
             }
             CommandError::Invalid(e) => write!(f, "command would make the project invalid: {e}"),
         }
@@ -191,6 +202,50 @@ impl Project {
                     .expect("item found above");
                 items[position].duration = left_duration;
                 items.insert(position + 1, right);
+                Ok(())
+            }
+            Command::ReorderItem { item_id, before_item_id } => {
+                let track_id = self
+                    .find_item_track(*item_id)
+                    .ok_or(CommandError::UnknownItem { item_id: *item_id })?;
+                if self.track(track_id).map(|track| track.locked).unwrap_or(false) {
+                    return Err(CommandError::TrackLocked { track_id });
+                }
+                if let Some(target_item_id) = before_item_id {
+                    if *target_item_id == *item_id {
+                        return Err(CommandError::InvalidReorderTarget {
+                            item_id: *item_id,
+                            target_item_id: *target_item_id,
+                        });
+                    }
+                    let target_track = self
+                        .find_item_track(*target_item_id)
+                        .ok_or(CommandError::UnknownItem { item_id: *target_item_id })?;
+                    if target_track != track_id {
+                        return Err(CommandError::InvalidReorderTarget {
+                            item_id: *item_id,
+                            target_item_id: *target_item_id,
+                        });
+                    }
+                }
+
+                let items = self.items_mut(track_id).expect("track found above");
+                let origin = items.first().map(|item| item.start).unwrap_or(Tick::ZERO);
+                let position = items
+                    .iter()
+                    .position(|item| item.id == *item_id)
+                    .expect("item found above");
+                let item = items.remove(position);
+                let insert_at = before_item_id
+                    .and_then(|target| items.iter().position(|entry| entry.id == target))
+                    .unwrap_or(items.len());
+                items.insert(insert_at, item);
+
+                let mut cursor = origin;
+                for entry in items.iter_mut() {
+                    entry.start = cursor;
+                    cursor = cursor + entry.duration;
+                }
                 Ok(())
             }
             Command::MoveItem {
@@ -421,6 +476,87 @@ mod tests {
         assert_eq!(history.project().item(10).unwrap().duration, Tick::from_seconds(6.0));
         assert_eq!(history.project().item(12).unwrap().start, Tick::from_seconds(8.0));
         assert_ne!(history.project(), &original);
+    }
+
+    #[test]
+    fn reorder_moves_an_item_before_the_target_and_compacts_the_track() {
+        let mut project = project_with_one_clip();
+        project.items_mut(1).unwrap().push(Item::new(
+            12,
+            1,
+            Tick::from_seconds(10.0),
+            Tick::from_seconds(3.0),
+            Tick::from_seconds(8.0),
+        ));
+        project.items_mut(1).unwrap().push(Item::new(
+            13,
+            1,
+            Tick::from_seconds(13.0),
+            Tick::from_seconds(4.0),
+            Tick::from_seconds(2.0),
+        ));
+        project.validate().unwrap();
+
+        let reordered = project.apply(&Command::ReorderItem {
+            item_id: 13,
+            before_item_id: Some(10),
+        }).unwrap();
+        let items = reordered.items(1).unwrap();
+        assert_eq!(items.iter().map(|item| item.id).collect::<Vec<_>>(), vec![13, 10, 12]);
+        assert_eq!(items[0].start, Tick::from_seconds(2.0));
+        assert_eq!(items[1].start, Tick::from_seconds(6.0));
+        assert_eq!(items[2].start, Tick::from_seconds(14.0));
+        assert_eq!(items[0].source_in, Tick::from_seconds(2.0));
+        assert_eq!(items[1].source_in, Tick::from_seconds(1.0));
+        assert_eq!(items[2].source_in, Tick::from_seconds(8.0));
+        reordered.validate().unwrap();
+    }
+
+    #[test]
+    fn reorder_participates_in_history() {
+        let mut project = project_with_one_clip();
+        project.items_mut(1).unwrap().push(Item::new(
+            12,
+            1,
+            Tick::from_seconds(10.0),
+            Tick::from_seconds(3.0),
+            Tick::from_seconds(8.0),
+        ));
+        let original = project.clone();
+        let mut history = History::new(project);
+        history.apply(&Command::ReorderItem {
+            item_id: 12,
+            before_item_id: Some(10),
+        }).unwrap();
+        assert_eq!(history.project().items(1).unwrap()[0].id, 12);
+        assert!(history.undo());
+        assert_eq!(history.project(), &original);
+        assert!(history.redo());
+        assert_eq!(history.project().items(1).unwrap()[0].id, 12);
+    }
+
+    #[test]
+    fn reorder_rejects_items_on_other_tracks() {
+        let mut project = project_with_one_clip();
+        project.add_track(Track::new(2, TrackKind::Video, "V2"));
+        project.items_mut(2).unwrap().push(Item::new(
+            20,
+            1,
+            Tick::ZERO,
+            Tick::from_seconds(2.0),
+            Tick::ZERO,
+        ));
+        project.validate().unwrap();
+        let before = project.clone();
+        let error = project.apply(&Command::ReorderItem {
+            item_id: 10,
+            before_item_id: Some(20),
+        }).unwrap_err().1;
+        assert_eq!(error, CommandError::InvalidReorderTarget {
+            item_id: 10,
+            target_item_id: 20,
+        });
+        assert_eq!(before, project);
     }
 
     #[test]
