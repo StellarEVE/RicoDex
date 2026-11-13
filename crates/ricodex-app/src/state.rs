@@ -660,7 +660,7 @@ impl AppState {
     /// clamped so the pair never eats the whole file once its
     /// duration is known.
     pub fn set_trims_seconds(&mut self, index: usize, intro_s: f64, outro_s: f64) {
-        if self.has_manual_edits {
+        if !self.can_edit_source_trims() {
             return;
         }
         let Some(entry) = self.pool.get_mut(index) else {
@@ -979,7 +979,27 @@ impl AppState {
         self.refresh_pipeline_job();
     }
 
-    fn install_plan(&mut self, plan: Plan) {
+    fn install_plan(&mut self, mut plan: Plan) {
+        // Planner SourceInfo coordinates are rebased to the trimmed source
+        // window. Core Items and the renderer use absolute positions in the
+        // original media file, so restore the asset intro offset here.
+        let intro_offset = |asset_id| {
+            self.project
+                .assets
+                .iter()
+                .find(|asset| asset.id == asset_id)
+                .map(|asset| asset.intro_trim)
+                .unwrap_or(Tick::ZERO)
+        };
+        for clip in &mut plan.clips {
+            clip.source_in = clip.source_in + intro_offset(clip.asset_id);
+        }
+        for command in &mut plan.commands {
+            if let Command::InsertItem { item, .. } = command {
+                item.source_in = item.source_in + intro_offset(item.asset_id);
+            }
+        }
+
         let mut base = self.project.clone();
         if let Some(items) = base.items_mut(VIDEO_TRACK_ID) {
             items.clear();
@@ -1117,6 +1137,23 @@ impl AppState {
             .iter()
             .find(|asset| asset.id == asset_id)
             .map(|asset| asset.duration)
+    }
+
+    /// The usable source interval after intro/outro trims. Unknown duration
+    /// returns None so the UI can retain an unconstrained provisional range.
+    pub fn asset_source_window(&self, asset_id: AssetId) -> Option<(Tick, Tick)> {
+        let asset = self.project.assets.iter().find(|asset| asset.id == asset_id)?;
+        if asset.duration <= Tick::ZERO {
+            return None;
+        }
+        Some((asset.intro_trim, asset.duration - asset.outro_trim))
+    }
+
+    /// Source trims can change only before any timeline items exist.
+    pub fn can_edit_source_trims(&self) -> bool {
+        !self.pipeline_running()
+            && !self.has_manual_edits
+            && self.project.track_items.iter().all(|group| group.items.is_empty())
     }
 
     pub fn next_item_id(&self) -> Option<ItemId> {
@@ -1275,7 +1312,7 @@ pub struct PlannedClipView {
 mod tests {
     use super::*;
     use ricodex_audio::{Beat, SongAnalysis};
-    use ricodex_engine::{BeatGrid, Planner, SceneInfo, SourceInfo};
+    use ricodex_engine::{BeatGrid, PlannedClip, Planner, SceneInfo, SourceInfo};
     use ricodex_media::{MediaBlackRange, MediaScene};
 
     fn fake_analysis(duration_s: f64) -> SourceAnalysis {
@@ -1331,6 +1368,69 @@ mod tests {
             error: None,
         });
         state
+    }
+
+    #[test]
+    fn installed_plan_restores_intro_trim_to_absolute_source_coordinates() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let asset_id = state.pool[video_index].asset_id;
+        state.set_trims_seconds(video_index, 2.0, 3.0);
+
+        let source_in = Tick::from_seconds(1.0);
+        let duration = Tick::from_seconds(4.0);
+        let plan = Plan {
+            track_id: VIDEO_TRACK_ID,
+            clips: vec![PlannedClip {
+                item_id: 50,
+                asset_id,
+                start: Tick::ZERO,
+                duration,
+                source_in,
+                state: ClipState::Settled,
+            }],
+            commands: vec![Command::InsertItem {
+                track_id: VIDEO_TRACK_ID,
+                item: ricodex_core::Item::new(
+                    50,
+                    asset_id,
+                    Tick::ZERO,
+                    duration,
+                    source_in,
+                ),
+            }],
+        };
+
+        state.install_plan(plan);
+
+        assert_eq!(state.project.item(50).unwrap().source_in, Tick::from_seconds(3.0));
+        assert_eq!(
+            state.plan.as_ref().unwrap().clips[0].source_in,
+            Tick::from_seconds(3.0)
+        );
+        assert!(!state.can_edit_source_trims());
+    }
+
+    #[test]
+    fn source_trims_cannot_change_after_a_timeline_exists() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        state.set_trims_seconds(video_index, 2.0, 3.0);
+        let asset_id = state.pool[video_index].asset_id;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+            51,
+            asset_id,
+            Tick::ZERO,
+            Tick::from_seconds(4.0),
+            Tick::from_seconds(2.0),
+        ));
+        state.history = History::new(state.project.clone());
+
+        assert!(!state.can_edit_source_trims());
+        state.set_trims_seconds(video_index, 5.0, 1.0);
+        let asset = state.project.assets.iter().find(|asset| asset.id == asset_id).unwrap();
+        assert_eq!(asset.intro_trim, Tick::from_seconds(2.0));
+        assert_eq!(asset.outro_trim, Tick::from_seconds(3.0));
     }
 
     #[test]
@@ -1432,7 +1532,7 @@ mod tests {
             video_asset_id,
             Tick::ZERO,
             Tick::from_seconds(5.0),
-            Tick::from_seconds(1.0),
+            Tick::from_seconds(1.5),
         ));
 
         let path = std::env::temp_dir().join(format!(

@@ -156,6 +156,33 @@ fn zero_duration_rejected() {
 }
 
 #[test]
+fn item_source_range_must_respect_asset_trims() {
+    let mut project = sample_project();
+    let asset = project.assets.iter_mut().find(|asset| asset.id == 1).unwrap();
+    asset.intro_trim = Tick::from_seconds(2.0);
+    asset.outro_trim = Tick::from_seconds(3.0);
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::ItemOutsideAssetTrimWindow {
+            item_id: 100,
+            asset_id: 1,
+        })
+    );
+
+    project.items_mut(10).unwrap()[0].source_in = Tick::from_seconds(2.0);
+    assert!(project.validate().is_ok());
+
+    project.items_mut(10).unwrap()[0].source_in = Tick::from_seconds(56.0);
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::ItemOutsideAssetTrimWindow {
+            item_id: 100,
+            asset_id: 1,
+        })
+    );
+}
+
+#[test]
 fn unknown_asset_rejected() {
     let mut project = sample_project();
     project.items_mut(10).unwrap()[0].asset_id = 999;

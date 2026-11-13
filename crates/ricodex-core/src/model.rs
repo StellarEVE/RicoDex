@@ -281,6 +281,20 @@ impl Project {
                         asset_id: item.asset_id,
                     });
                 }
+                if let Some(asset) = self.assets.iter().find(|asset| asset.id == item.asset_id) {
+                    if asset.duration > Tick::ZERO {
+                        let source_end = asset.duration - asset.outro_trim;
+                        if item.source_in < asset.intro_trim
+                            || item.source_in > source_end
+                            || item.duration > source_end - item.source_in
+                        {
+                            return Err(ModelError::ItemOutsideAssetTrimWindow {
+                                item_id: item.id,
+                                asset_id: item.asset_id,
+                            });
+                        }
+                    }
+                }
                 if index > 0 {
                     let previous = &items[index - 1];
                     if item.start < previous.start {
@@ -318,6 +332,7 @@ pub enum ModelError {
     SongAssetNotAudio { asset_id: AssetId },
     NegativeAssetTrim { asset_id: AssetId },
     AssetTrimExceedsDuration { asset_id: AssetId },
+    ItemOutsideAssetTrimWindow { item_id: ItemId, asset_id: AssetId },
     DuplicateTrackId { id: TrackId },
     DuplicateItemId { id: ItemId },
     TrackItemsMismatch,
@@ -340,6 +355,7 @@ impl std::fmt::Display for ModelError {
             ModelError::SongAssetNotAudio { asset_id } => write!(f, "selected song asset {asset_id} is not audio"),
             ModelError::NegativeAssetTrim { asset_id } => write!(f, "asset {asset_id} has a negative source trim"),
             ModelError::AssetTrimExceedsDuration { asset_id } => write!(f, "asset {asset_id} source trims leave no usable duration"),
+            ModelError::ItemOutsideAssetTrimWindow { item_id, asset_id } => write!(f, "item {item_id} uses source frames outside asset {asset_id}'s trimmed source window"),
             ModelError::DuplicateTrackId { id } => write!(f, "duplicate track id {id}"),
             ModelError::DuplicateItemId { id } => write!(f, "duplicate item id {id}"),
             ModelError::TrackItemsMismatch => {

@@ -624,7 +624,7 @@ impl EditorApp {
                                     ui.label("intro trim");
                                     let changed_in = ui
                                         .add_enabled(
-                                            !self.state.has_manual_edits,
+                                            self.state.can_edit_source_trims(),
                                             egui::DragValue::new(&mut intro_s)
                                                 .speed(0.05)
                                                 .range(0.0..=max_s)
@@ -635,7 +635,7 @@ impl EditorApp {
                                     ui.label("outro trim");
                                     let changed_out = ui
                                         .add_enabled(
-                                            !self.state.has_manual_edits,
+                                            self.state.can_edit_source_trims(),
                                             egui::DragValue::new(&mut outro_s)
                                                 .speed(0.05)
                                                 .range(0.0..=max_s)
@@ -921,6 +921,10 @@ impl EditorApp {
                             .asset_duration(clip.asset_id)
                             .map(|duration| duration.to_seconds())
                             .unwrap_or(36000.0);
+                        let (source_start, source_end) = self
+                            .state
+                            .asset_source_window(clip.asset_id)
+                            .unwrap_or((Tick::ZERO, Tick::from_seconds(source_duration)));
                         ui.horizontal(|ui| {
                             ui.label("Duration");
                             if ui
@@ -929,7 +933,7 @@ impl EditorApp {
                                         .speed(0.05)
                                         .range(
                                             0.01
-                                                ..=(source_duration - clip.source_in.to_seconds())
+                                                ..=((source_end - clip.source_in).to_seconds())
                                                     .max(0.01),
                                         )
                                         .fixed_decimals(2)
@@ -946,13 +950,19 @@ impl EditorApp {
                                 .add(
                                     egui::DragValue::new(&mut source_in_seconds)
                                         .speed(0.05)
-                                        .range(0.0..=(source_duration - duration_seconds).max(0.0))
+                                        .range(
+                                            source_start.to_seconds()
+                                                ..=((source_end - Tick::from_seconds(duration_seconds)).to_seconds())
+                                                    .max(source_start.to_seconds()),
+                                        )
                                         .fixed_decimals(2)
                                         .suffix(" s"),
                                 )
                                 .changed()
                             {
-                                new_source_in = Some(Tick::from_seconds(source_in_seconds.max(0.0)));
+                                new_source_in = Some(Tick::from_seconds(
+                                    source_in_seconds.max(source_start.to_seconds()),
+                                ));
                             }
                         });
 
