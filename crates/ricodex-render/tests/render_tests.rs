@@ -369,6 +369,8 @@ fn two_clip_project(a: &Path, b: &Path) -> Project {
         path_hint: a.to_string_lossy().into_owned(),
         kind: AssetKind::Video,
         duration: Tick::from_seconds(2.0),
+        intro_trim: Tick::ZERO,
+        outro_trim: Tick::ZERO,
     });
     project.assets.push(Asset {
         id: 2,
@@ -376,6 +378,8 @@ fn two_clip_project(a: &Path, b: &Path) -> Project {
         path_hint: b.to_string_lossy().into_owned(),
         kind: AssetKind::Video,
         duration: Tick::from_seconds(2.0),
+        intro_trim: Tick::ZERO,
+        outro_trim: Tick::ZERO,
     });
     project.add_track(Track::new(1, TrackKind::Video, "V1"));
     let items = project.items_mut(1).unwrap();
