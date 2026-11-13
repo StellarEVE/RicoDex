@@ -864,6 +864,14 @@ impl AppState {
         true
     }
 
+    pub fn asset_duration(&self, asset_id: AssetId) -> Option<Tick> {
+        self.project
+            .assets
+            .iter()
+            .find(|asset| asset.id == asset_id)
+            .map(|asset| asset.duration)
+    }
+
     pub fn next_item_id(&self) -> Option<ItemId> {
         self.project
             .track_items
