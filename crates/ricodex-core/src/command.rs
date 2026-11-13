@@ -331,6 +331,8 @@ mod tests {
             path_hint: "clip.mp4".to_string(),
             kind: AssetKind::Video,
             duration: Tick::from_seconds(20.0),
+            intro_trim: Tick::ZERO,
+            outro_trim: Tick::ZERO,
         });
         project.add_track(Track::new(1, TrackKind::Video, "V1"));
         project.items_mut(1).unwrap().push(Item::new(
