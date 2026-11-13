@@ -824,17 +824,18 @@ impl AppState {
 
         match command {
             Command::InsertItem { item, .. } => self.pin_item(item.id),
-            Command::SplitItem { item_id, new_item_id, .. } => {
-                self.pin_item(*item_id);
-                self.pin_item(*new_item_id);
-            }
-            Command::RemoveItem { item_id } => {
+            Command::RippleRemoveItem { item_id } | Command::RemoveItem { item_id } => {
                 if self.selected_item == Some(*item_id) {
                     self.selected_item = None;
                 }
             }
+            Command::SplitItem { item_id, new_item_id, .. } => {
+                self.pin_item(*item_id);
+                self.pin_item(*new_item_id);
+            }
             Command::MoveItem { item_id, .. }
             | Command::TrimItem { item_id, .. }
+            | Command::RippleTrimItem { item_id, .. }
             | Command::SetItemEnabled { item_id, .. } => self.pin_item(*item_id),
             Command::SetTrackMuted { .. } | Command::SetTrackLocked { .. } => {}
         }
