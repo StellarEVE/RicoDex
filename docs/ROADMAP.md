@@ -49,18 +49,21 @@ The foundation is real, but several user-facing workflows remain incomplete:
 
 ### Phase 1: Complete the essential editing loop
 
-**Goal:** users can refine a generated cut without bypassing the Core model.
+**Goal:** users can refine and preserve a generated cut without bypassing the Core model.
 
 - Route every edit through ricodex-core commands and History.
-- Implement clip selection, move, trim, split, delete, undo and redo in the Edit page.
+- Current Edit-page controls support source-in/duration trimming, midpoint splitting, ripple deletion, pinning, undo and redo. Drag/reorder movement remains open.
 - Preserve integer Tick values in the model; convert to seconds only at UI boundaries.
 - Make the current project model the timeline's source of truth after every accepted command.
 - Prevent invalid edits from partially mutating project state.
 - Preserve generated-clip pinning and clearly report rejected edits.
-- Add application-level project save, reopen and media relinking.
-- Add acceptance tests for a sequence of edits, save/load, undo and redo.
+- Provide application-level Save, Save As and Open controls backed by Core's atomic JSON persistence and backup file.
+- Persist selected-song identity and per-asset intro/outro trims in project schema 2; migrate schema-1 projects with safe defaults and infer a selected song only when exactly one audio asset exists.
+- Rebuild the Media pool when reopening a project and verify every available source against its saved content fingerprint.
+- Provide a Locate flow for missing/moved files. Accept a replacement path only when its fingerprint matches the saved asset.
+- Add acceptance tests for schema migration, metadata round trips, editing history and fingerprint-matched relinking.
 
-**Exit gate:** a user can take a generated cut, rearrange and split clips, trim source/timeline ranges, delete unwanted shots, undo/redo, save and reopen the result without losing source links or timeline state.
+**Exit gate:** a user can generate a cut, use the currently supported trim/split/delete operations, undo/redo, save and reopen it with song selection and source trims intact, and relink moved media without accidentally substituting different footage.
 
 ### Phase 2: One complete preview and export pipeline
 
