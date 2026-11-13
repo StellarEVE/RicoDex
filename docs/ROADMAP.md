@@ -27,7 +27,7 @@ The foundation is real, but several user-facing workflows remain incomplete:
 
 - The Edit page now supports source/duration trimming, splitting, ripple deletion, drag-to-reorder, pinning and undo/redo through Core commands and History. It remains a deliberately small single-track editing surface.
 - Planner analysis uses coordinates relative to the user-selected source-trim window; installed timeline items are converted back to absolute original-media time. Core validation rejects items outside the usable source window, and source trim settings lock once a timeline exists.
-- The app export path is a sequential contiguous video render with hard cuts. Full-timeline rendering, gaps, transitions and audio mixing are not integrated into the app export workflow.
+- The app export path is a sequential contiguous video render with hard cuts. Full-timeline rendering, gaps, transitions and audio mixing are not integrated into the app export workflow. Export must not be described as synchronized until the application produces a playable file with the selected song and clip audio correctly mixed and aligned to timeline time.
 - Application-level Save, Save As and Open are integrated with versioned Core JSON persistence. Media relinking verifies saved fingerprints; a project without a fingerprint can enroll one only from its original saved path, not from an arbitrary moved replacement. The complete Windows interaction workflow still needs a manual smoke test.
 - Render scheduling and cache foundations need end-to-end integration and invalidation tests.
 - Windows hardware behaviour must be verified on actual machines. The application defaults to OpenGL for startup compatibility; the wgpu renderer is an explicit opt-in until broader Windows validation exists.
