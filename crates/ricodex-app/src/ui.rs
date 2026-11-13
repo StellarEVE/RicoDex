@@ -601,8 +601,16 @@ impl EditorApp {
                                     .small(),
                             );
                             if !entry.probing && entry.probe_error.is_some() {
-                                if ui.button("Locate…").clicked() {
-                                    relink_index = Some(index);
+                                if self.state.can_relink_asset(index) {
+                                    if ui.button("Locate…").clicked() {
+                                        relink_index = Some(index);
+                                    }
+                                } else {
+                                    ui.label(
+                                        RichText::new("Cannot relink safely: this project has no saved fingerprint. Re-import the source.")
+                                            .color(WARN)
+                                            .small(),
+                                    );
                                 }
                             }
                             if entry.kind == crate::state::MediaKind::Video {

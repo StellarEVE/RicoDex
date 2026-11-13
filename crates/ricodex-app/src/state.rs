@@ -566,16 +566,18 @@ impl AppState {
             .map(|asset| asset.fingerprint);
         let blank = Fingerprint::new(0, 0, 0, 0);
         let matches = match (expected, result.fingerprint) {
-            (Some(saved), Some(actual)) => saved == blank || saved == actual,
+            (Some(saved), Some(actual)) if saved != blank => saved == actual,
             _ => false,
         };
 
         entry.probing = false;
         if !matches {
             entry.probe = None;
-            entry.probe_error = Some(
-                "selected file does not match the saved media fingerprint".to_string(),
-            );
+            entry.probe_error = Some(if expected == Some(blank) {
+                "project asset has no saved media fingerprint; re-import this file to establish media identity".to_string()
+            } else {
+                "selected file does not match the saved media fingerprint".to_string()
+            });
         } else {
             let previous_path = entry.path.clone();
             entry.path = result.path.clone();
@@ -608,6 +610,21 @@ impl AppState {
         self.project_path = Some(path);
         self.is_dirty = false;
         Ok(())
+    }
+
+    /// Whether this asset has a saved content fingerprint that can
+    /// safely verify a replacement file during relinking.
+    pub fn can_relink_asset(&self, index: usize) -> bool {
+        let Some(entry) = self.pool.get(index) else {
+            return false;
+        };
+        let blank = Fingerprint::new(0, 0, 0, 0);
+        self.project
+            .assets
+            .iter()
+            .find(|asset| asset.id == entry.asset_id)
+            .map(|asset| asset.fingerprint != blank)
+            .unwrap_or(false)
     }
 
     pub fn video_indices(&self) -> Vec<usize> {
@@ -1496,6 +1513,30 @@ mod tests {
             "/tmp/matching-copy.mp4"
         );
         assert!(state.is_dirty);
+    }
+
+    #[test]
+    fn relinking_refuses_assets_without_a_saved_fingerprint() {
+        let mut state = state_with_media();
+        let video_index = state.video_indices()[0];
+        let original_path = state.pool[video_index].path.clone();
+        assert!(!state.can_relink_asset(video_index));
+        assert_eq!(state.begin_relink_probe(video_index), Some(MediaKind::Video));
+        state.handle_relink_result(RelinkResult {
+            index: video_index,
+            path: PathBuf::from("/tmp/unverifiable-replacement.mp4"),
+            fingerprint: Some(Fingerprint::new(500, 1, 2, 3)),
+            duration: Some(Tick::from_seconds(20.0)),
+            probe: None,
+            error: None,
+        });
+        assert_eq!(state.pool[video_index].path, original_path);
+        assert!(state.pool[video_index]
+            .probe_error
+            .as_deref()
+            .unwrap()
+            .contains("no saved media fingerprint"));
+        assert!(!state.can_relink_asset(video_index));
     }
 
     #[test]
