@@ -80,7 +80,24 @@ impl Project {
                 supported: SCHEMA_VERSION,
             });
         }
-        let project: Project = serde_json::from_str(text)?;
+        let mut project: Project = serde_json::from_str(text)?;
+        // Schema 1 did not persist source trims or the selected song.
+        // Serde defaults the new fields; infer a song only when the legacy
+        // project contains exactly one audio asset.
+        if peek.schema_version < SCHEMA_VERSION {
+            if project.song_asset_id.is_none() {
+                let audio_ids: Vec<_> = project
+                    .assets
+                    .iter()
+                    .filter(|asset| asset.kind == crate::model::AssetKind::Audio)
+                    .map(|asset| asset.id)
+                    .collect();
+                if audio_ids.len() == 1 {
+                    project.song_asset_id = Some(audio_ids[0]);
+                }
+            }
+            project.schema_version = SCHEMA_VERSION;
+        }
         project.validate().map_err(PersistenceError::Invalid)?;
         Ok(project)
     }
