@@ -296,7 +296,9 @@ impl VideoEncoder {
             num: fps_den as i32,
             den: fps_num as i32,
         };
-        let video_stream_index = output.streams().len();
+        // The output context has no stream array until the first
+        // stream is added. The video stream is unconditionally index 0.
+        let video_stream_index = 0usize;
         {
             let mut stream = output.new_stream();
             let result = unsafe {
