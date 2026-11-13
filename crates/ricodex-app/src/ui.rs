@@ -19,12 +19,12 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use egui::{Color32, CornerRadius, RichText, Stroke};
 
-use ricodex_core::{Command, Tick};
+use ricodex_core::{Command, Project, Tick};
 use ricodex_engine::ClipState;
 
 use crate::jobs;
 use crate::state::{
-    AppState, ExportMsg, JobState, MediaKind, Page, PipelineMsg, ProbeResult,
+    AppState, ExportMsg, JobState, MediaKind, Page, PipelineMsg, ProbeResult, RelinkResult,
 };
 
 // ---------------------------------------------------------------- theme
@@ -92,6 +92,8 @@ pub struct EditorApp {
     state: AppState,
     probe_tx: Sender<ProbeResult>,
     probe_rx: Receiver<ProbeResult>,
+    relink_tx: Sender<RelinkResult>,
+    relink_rx: Receiver<RelinkResult>,
     pipeline_rx: Option<Receiver<PipelineMsg>>,
     export_rx: Option<Receiver<ExportMsg>>,
     cache_home: PathBuf,
@@ -105,6 +107,7 @@ pub struct EditorApp {
 impl EditorApp {
     pub fn from_env() -> EditorApp {
         let (probe_tx, probe_rx) = std::sync::mpsc::channel();
+        let (relink_tx, relink_rx) = std::sync::mpsc::channel();
         let mut state = AppState::new();
         if let Ok(page) = std::env::var("RICODEX_PAGE") {
             if let Some(page) = Page::from_env(&page) {
@@ -126,6 +129,8 @@ impl EditorApp {
             state,
             probe_tx,
             probe_rx,
+            relink_tx,
+            relink_rx,
             pipeline_rx: None,
             export_rx: None,
             cache_home,
@@ -172,9 +177,113 @@ impl EditorApp {
         std::thread::spawn(move || jobs::run_export(project, path, tx));
     }
 
+    fn save_project_as(&mut self) {
+        let path = rfd::FileDialog::new()
+            .set_file_name("RicoDex.rdx")
+            .add_filter("RicoDex project", &["rdx", "json"])
+            .save_file();
+        if let Some(path) = path {
+            if let Err(error) = self.state.save_project_to(path) {
+                self.state.notice = Some(format!("project save failed: {error}"));
+            } else {
+                self.state.notice = Some("project saved".to_string());
+            }
+        }
+    }
+
+    fn save_project(&mut self) {
+        if let Some(path) = self.state.project_path.clone() {
+            if let Err(error) = self.state.save_project_to(path) {
+                self.state.notice = Some(format!("project save failed: {error}"));
+            } else {
+                self.state.notice = Some("project saved".to_string());
+            }
+        } else {
+            self.save_project_as();
+        }
+    }
+
+    fn open_project_dialog(&mut self) {
+        let path = rfd::FileDialog::new()
+            .add_filter("RicoDex project", &["rdx", "json"])
+            .pick_file();
+        let Some(path) = path else {
+            return;
+        };
+        match Project::load(&path) {
+            Ok(project) => {
+                let probes = self.state.restore_project(project, path);
+                for (index, media_path, kind) in probes {
+                    let tx = self.relink_tx.clone();
+                    std::thread::spawn(move || {
+                        jobs::run_relink_probe(index, media_path, kind, tx)
+                    });
+                }
+            }
+            Err(error) => {
+                self.state.notice = Some(format!("could not open project: {error}"));
+            }
+        }
+    }
+
+    fn project_toolbar(&mut self, ui: &mut egui::Ui) {
+        let busy = self.state.pipeline_running()
+            || self.state.export_job.is_running()
+            || self.state.probe_job.is_running();
+        let can_save = !busy && self.state.is_dirty;
+        let can_save_as = !busy;
+        let can_open = !busy && !self.state.is_dirty;
+
+        let mut save = false;
+        let mut save_as = false;
+        let mut open = false;
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Project").strong());
+            let name = self
+                .state
+                .project_path
+                .as_ref()
+                .and_then(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Untitled".to_string());
+            ui.label(RichText::new(name).color(SILVER_DIM));
+            if self.state.is_dirty {
+                ui.label(RichText::new("unsaved changes").color(WARN).small());
+            }
+            save = ui
+                .add_enabled(can_save, egui::Button::new("Save"))
+                .clicked();
+            save_as = ui
+                .add_enabled(can_save_as, egui::Button::new("Save As…"))
+                .clicked();
+            open = ui
+                .add_enabled(can_open, egui::Button::new("Open…"))
+                .clicked();
+        });
+        if self.state.is_dirty && !busy {
+            ui.label(
+                RichText::new("Save current changes before opening another project.")
+                    .color(SILVER_DIM)
+                    .small(),
+            );
+        }
+        if save {
+            self.save_project();
+        }
+        if save_as {
+            self.save_project_as();
+        }
+        if open {
+            self.open_project_dialog();
+        }
+    }
+
     fn drain_channels(&mut self) {
         while let Ok(result) = self.probe_rx.try_recv() {
             self.state.handle_probe_result(result);
+        }
+        while let Ok(result) = self.relink_rx.try_recv() {
+            self.state.handle_relink_result(result);
         }
         if let Some(rx) = &self.pipeline_rx {
             let mut drained = Vec::new();
@@ -290,6 +399,8 @@ impl eframe::App for EditorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.footer(ui);
         egui::CentralPanel::default().show(ui, |ui| {
+            self.project_toolbar(ui);
+            ui.separator();
             match self.state.page {
                 Page::Media => self.media_page(ui),
                 Page::Cut => self.cut_page(ui),
@@ -421,6 +532,7 @@ impl EditorApp {
 
         let mut set_song_to: Option<usize> = None;
         let mut trim_changes: Vec<(usize, f64, f64)> = Vec::new();
+        let mut relink_index: Option<usize> = None;
         egui::ScrollArea::vertical()
             .max_height(ui.available_height() - 64.0)
             .show(ui, |ui| {
@@ -446,7 +558,12 @@ impl EditorApp {
                                 );
                                 if entry.kind == crate::state::MediaKind::Audio {
                                     let is_song = self.state.song_index == Some(index);
-                                    if ui.radio(is_song, "song").clicked() {
+                                    let can_choose_song = !self.state.has_manual_edits
+                                        || self.state.project.song_asset_id.is_none();
+                                    if ui
+                                        .add_enabled(can_choose_song, egui::RadioButton::new(is_song, "song"))
+                                        .clicked()
+                                    {
                                         set_song_to = Some(index);
                                     }
                                 }
@@ -470,6 +587,11 @@ impl EditorApp {
                                     .color(if warn { WARN } else { SILVER_DIM })
                                     .small(),
                             );
+                            if !entry.probing && entry.probe_error.is_some() {
+                                if ui.button("Locate…").clicked() {
+                                    relink_index = Some(index);
+                                }
+                            }
                             if entry.kind == crate::state::MediaKind::Video {
                                 let mut intro_s = entry.intro_trim.to_seconds();
                                 let mut outro_s = entry.outro_trim.to_seconds();
@@ -480,7 +602,8 @@ impl EditorApp {
                                 ui.horizontal(|ui| {
                                     ui.label("intro trim");
                                     let changed_in = ui
-                                        .add(
+                                        .add_enabled(
+                                            !self.state.has_manual_edits,
                                             egui::DragValue::new(&mut intro_s)
                                                 .speed(0.05)
                                                 .range(0.0..=max_s)
@@ -490,7 +613,8 @@ impl EditorApp {
                                         .changed();
                                     ui.label("outro trim");
                                     let changed_out = ui
-                                        .add(
+                                        .add_enabled(
+                                            !self.state.has_manual_edits,
                                             egui::DragValue::new(&mut outro_s)
                                                 .speed(0.05)
                                                 .range(0.0..=max_s)
@@ -512,6 +636,26 @@ impl EditorApp {
         }
         for (index, intro, outro) in trim_changes {
             self.state.set_trims_seconds(index, intro, outro);
+        }
+        if let Some(index) = relink_index {
+            let kind = self.state.pool.get(index).map(|entry| entry.kind);
+            let path = match kind {
+                Some(MediaKind::Audio) => rfd::FileDialog::new()
+                    .add_filter("Audio", &["wav", "mp3", "flac", "ogg", "m4a", "aac", "opus"])
+                    .pick_file(),
+                Some(MediaKind::Video) => rfd::FileDialog::new()
+                    .add_filter("Video", &["mp4", "mkv", "mov", "webm", "avi", "m4v"])
+                    .pick_file(),
+                None => None,
+            };
+            if let Some(path) = path {
+                if let Some(kind) = self.state.begin_relink_probe(index) {
+                    let tx = self.relink_tx.clone();
+                    std::thread::spawn(move || {
+                        jobs::run_relink_probe(index, path, kind, tx)
+                    });
+                }
+            }
         }
 
         ui.separator();
