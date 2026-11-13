@@ -12,7 +12,7 @@ RicoDex analyses a selected song and source videos, generates a beat-synchronise
 
 ## Current state
 
-RicoDex is a local-first Rust desktop video editor built on a modular workspace. It is under active development and is not yet a completed release. The Edit page is being connected to the Core command/history model; the current editing slice includes source trimming, splitting, deletion and undo/redo. Application-level project save/reopen, full-timeline audio/video export, real Windows hardware validation and FFmpeg redistribution licensing remain outstanding.
+RicoDex is a local-first Rust desktop video editor built on a modular workspace. It is under active development and is not yet a completed release. The current editor slice includes source-in/duration trimming, midpoint splitting, ripple deletion, pinning and undo/redo. Project Save, Save As and Open are integrated with versioned Core JSON persistence; schema-1 projects migrate to schema 2. Selected-song identity and per-source trims are persisted, and moved media can be relinked only after its content fingerprint matches. Drag/reorder editing, full-timeline audio/video export, real Windows hardware validation and FFmpeg redistribution licensing remain outstanding.
 
 Do not treat a documented target feature as implemented until code and tests verify it. Read docs/ROADMAP.md and docs/PLAN.md.
 
