@@ -323,22 +323,40 @@ impl eframe::App for EditorApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_channels();
 
-        // Standard history shortcuts are active on the Edit page only.
-        if self.state.page == Page::Edit && !self.state.pipeline_running() {
-            let (undo, redo) = ctx.input(|input| {
-                let command = input.modifiers.command;
-                (
-                    command && input.key_pressed(egui::Key::Z) && !input.modifiers.shift,
-                    (command && input.key_pressed(egui::Key::Y))
+        let (undo, redo, save, save_as, open) = ctx.input(|input| {
+            let command = input.modifiers.command;
+            (
+                self.state.page == Page::Edit
+                    && command
+                    && input.key_pressed(egui::Key::Z)
+                    && !input.modifiers.shift,
+                self.state.page == Page::Edit
+                    && ((command && input.key_pressed(egui::Key::Y))
                         || (command
                             && input.modifiers.shift
-                            && input.key_pressed(egui::Key::Z)),
-                )
-            });
-            if undo {
-                self.state.undo_edit();
-            } else if redo {
-                self.state.redo_edit();
+                            && input.key_pressed(egui::Key::Z))),
+                command && input.key_pressed(egui::Key::S) && !input.modifiers.shift,
+                command && input.key_pressed(egui::Key::S) && input.modifiers.shift,
+                command && input.key_pressed(egui::Key::O),
+            )
+        });
+
+        if undo && !self.state.pipeline_running() {
+            self.state.undo_edit();
+        } else if redo && !self.state.pipeline_running() {
+            self.state.redo_edit();
+        }
+
+        let project_busy = self.state.pipeline_running()
+            || self.state.export_job.is_running()
+            || self.state.probe_job.is_running();
+        if !project_busy {
+            if save {
+                self.save_project();
+            } else if save_as {
+                self.save_project_as();
+            } else if open && !self.state.is_dirty {
+                self.open_project_dialog();
             }
         }
 
