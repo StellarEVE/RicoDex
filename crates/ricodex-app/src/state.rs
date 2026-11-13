@@ -296,6 +296,10 @@ pub struct AppState {
     pub project: Project,
     /// Core command history shared by every editing control.
     pub history: History,
+    /// True after a user edit diverges from the latest generated plan.
+    /// A new analysis is blocked until those edits are undone, avoiding
+    /// silently replacing work that the current planner cannot preserve.
+    pub has_manual_edits: bool,
     pub pool: Vec<PoolEntry>,
     pub page: Page,
     pub song_index: Option<usize>,
@@ -332,6 +336,7 @@ impl AppState {
         AppState {
             project,
             history,
+            has_manual_edits: false,
             pool: Vec::new(),
             page: Page::Media,
             song_index: None,
@@ -493,6 +498,7 @@ impl AppState {
         self.song_index.is_some()
             && !self.video_indices().is_empty()
             && !self.pipeline_job.is_running()
+            && !self.has_manual_edits
     }
 
     /// Clone out everything the pipeline worker needs. Also resets
@@ -760,6 +766,7 @@ impl AppState {
                 self.project = project;
                 // The newest generated plan is the baseline for future edits.
                 self.history = History::new(self.project.clone());
+                self.has_manual_edits = false;
                 self.plan = Some(plan);
                 if let Some(selected) = self.selected_item {
                     if self.project.item(selected).is_none() {
@@ -813,6 +820,7 @@ impl AppState {
         }
         self.history.apply(command).map_err(|error| error.to_string())?;
         self.project = self.history.project().clone();
+        self.has_manual_edits = true;
 
         match command {
             Command::InsertItem { item, .. } => self.pin_item(item.id),
@@ -850,6 +858,7 @@ impl AppState {
         if self.selected_item.map(|id| self.project.item(id).is_none()).unwrap_or(false) {
             self.selected_item = None;
         }
+        self.has_manual_edits = self.history.can_undo();
         true
     }
 
@@ -861,6 +870,7 @@ impl AppState {
         if self.selected_item.map(|id| self.project.item(id).is_none()).unwrap_or(false) {
             self.selected_item = None;
         }
+        self.has_manual_edits = true;
         true
     }
 
@@ -1114,15 +1124,18 @@ mod tests {
         assert_eq!(state.selected_item, Some(10));
         assert!(state.is_pinned(10));
         assert!(state.is_pinned(11));
+        assert!(state.has_manual_edits);
 
         assert!(state.undo_edit());
         assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 1);
         assert_eq!(state.timeline_clips().len(), 1);
         assert_eq!(state.selected_item, Some(10));
+        assert!(!state.has_manual_edits);
 
         assert!(state.redo_edit());
         assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 2);
         assert_eq!(state.timeline_clips().len(), 2);
+        assert!(state.has_manual_edits);
     }
 
     #[test]
