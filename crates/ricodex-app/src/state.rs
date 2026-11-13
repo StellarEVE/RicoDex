@@ -1110,6 +1110,13 @@ mod tests {
         ));
         state.history = History::new(state.project.clone());
         state.selected_item = Some(10);
+        let song_index = state
+            .pool
+            .iter()
+            .position(|entry| entry.kind == MediaKind::Audio)
+            .unwrap();
+        state.set_song(song_index);
+        assert!(state.can_begin_analysis());
 
         state
             .apply_edit(&Command::SplitItem {
@@ -1125,17 +1132,20 @@ mod tests {
         assert!(state.is_pinned(10));
         assert!(state.is_pinned(11));
         assert!(state.has_manual_edits);
+        assert!(!state.can_begin_analysis());
 
         assert!(state.undo_edit());
         assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 1);
         assert_eq!(state.timeline_clips().len(), 1);
         assert_eq!(state.selected_item, Some(10));
         assert!(!state.has_manual_edits);
+        assert!(state.can_begin_analysis());
 
         assert!(state.redo_edit());
         assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 2);
         assert_eq!(state.timeline_clips().len(), 2);
         assert!(state.has_manual_edits);
+        assert!(!state.can_begin_analysis());
     }
 
     #[test]
