@@ -274,7 +274,7 @@ impl Project {
                     .position(|item| item.id == *item_id)
                     .expect("item found above");
                 let old_duration = items[position].duration;
-                let next_duration = new_duration.unwrap_or(old_duration);
+                let next_duration = (*new_duration).unwrap_or(old_duration);
                 let delta = next_duration - old_duration;
                 if let Some(source_in) = new_source_in {
                     items[position].source_in = *source_in;
