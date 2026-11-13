@@ -14,7 +14,9 @@ use crate::time::Tick;
 pub enum Command {
     /// Insert an item onto a track. The item group is kept sorted by start.
     InsertItem { track_id: TrackId, item: Item },
-    /// Remove an item from whichever track holds it.
+    /// Remove an item and ripple later items on its track left by its duration.
+    RippleRemoveItem { item_id: ItemId },
+    /// Remove an item from whichever track holds it, without shifting others.
     RemoveItem { item_id: ItemId },
     /// Split one item at an absolute timeline position. The right-hand item
     /// continues from the matching source position.
@@ -34,6 +36,13 @@ pub enum Command {
     TrimItem {
         item_id: ItemId,
         new_start: Option<Tick>,
+        new_source_in: Option<Tick>,
+        new_duration: Option<Tick>,
+    },
+    /// Trim source/timeline duration and shift all later items by the same
+    /// duration delta, preserving their relative spacing (ripple trim).
+    RippleTrimItem {
+        item_id: ItemId,
         new_source_in: Option<Tick>,
         new_duration: Option<Tick>,
     },
@@ -108,6 +117,24 @@ impl Project {
                     .position(|i| i.start > item.start)
                     .unwrap_or(items.len());
                 items.insert(position, item.clone());
+                Ok(())
+            }
+            Command::RippleRemoveItem { item_id } => {
+                let track_id = self
+                    .find_item_track(*item_id)
+                    .ok_or(CommandError::UnknownItem { item_id: *item_id })?;
+                if self.track(track_id).map(|t| t.locked).unwrap_or(false) {
+                    return Err(CommandError::TrackLocked { track_id });
+                }
+                let items = self.items_mut(track_id).expect("track found above");
+                let position = items
+                    .iter()
+                    .position(|item| item.id == *item_id)
+                    .expect("item found above");
+                let removed = items.remove(position);
+                for item in items.iter_mut().skip(position) {
+                    item.start = item.start - removed.duration;
+                }
                 Ok(())
             }
             Command::RemoveItem { item_id } => {
@@ -230,6 +257,36 @@ impl Project {
                 items.sort_by_key(|i| i.start);
                 Ok(())
             }
+            Command::RippleTrimItem {
+                item_id,
+                new_source_in,
+                new_duration,
+            } => {
+                let track_id = self
+                    .find_item_track(*item_id)
+                    .ok_or(CommandError::UnknownItem { item_id: *item_id })?;
+                if self.track(track_id).map(|t| t.locked).unwrap_or(false) {
+                    return Err(CommandError::TrackLocked { track_id });
+                }
+                let items = self.items_mut(track_id).expect("track found above");
+                let position = items
+                    .iter()
+                    .position(|item| item.id == *item_id)
+                    .expect("item found above");
+                let old_duration = items[position].duration;
+                let next_duration = new_duration.unwrap_or(old_duration);
+                let delta = next_duration - old_duration;
+                if let Some(source_in) = new_source_in {
+                    items[position].source_in = *source_in;
+                }
+                if new_duration.is_some() {
+                    items[position].duration = next_duration;
+                }
+                for item in items.iter_mut().skip(position + 1) {
+                    item.start = item.start + delta;
+                }
+                Ok(())
+            }
             Command::SetItemEnabled { item_id, enabled } => {
                 let track_id = self
                     .find_item_track(*item_id)
@@ -285,6 +342,83 @@ mod tests {
         ));
         project.validate().unwrap();
         project
+    }
+
+    #[test]
+    fn ripple_remove_closes_the_removed_clip_duration() {
+        let mut project = project_with_one_clip();
+        project.items_mut(1).unwrap().push(Item::new(
+            12,
+            1,
+            Tick::from_seconds(10.0),
+            Tick::from_seconds(3.0),
+            Tick::from_seconds(8.0),
+        ));
+        project.validate().unwrap();
+        let result = project.apply(&Command::RippleRemoveItem { item_id: 10 }).unwrap();
+        let remaining = result.items(1).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, 12);
+        assert_eq!(remaining[0].start, Tick::from_seconds(2.0));
+        result.validate().unwrap();
+    }
+
+    #[test]
+    fn ripple_trim_preserves_spacing_of_later_items() {
+        let mut project = project_with_one_clip();
+        project.items_mut(1).unwrap().push(Item::new(
+            12,
+            1,
+            Tick::from_seconds(10.0),
+            Tick::from_seconds(3.0),
+            Tick::from_seconds(8.0),
+        ));
+        project.validate().unwrap();
+        let shortened = project.clone().apply(&Command::RippleTrimItem {
+            item_id: 10,
+            new_source_in: None,
+            new_duration: Some(Tick::from_seconds(6.0)),
+        }).unwrap();
+        assert_eq!(shortened.item(12).unwrap().start, Tick::from_seconds(8.0));
+        assert_eq!(shortened.item(10).unwrap().duration, Tick::from_seconds(6.0));
+        shortened.validate().unwrap();
+
+        let lengthened = project.apply(&Command::RippleTrimItem {
+            item_id: 10,
+            new_source_in: None,
+            new_duration: Some(Tick::from_seconds(10.0)),
+        }).unwrap();
+        assert_eq!(lengthened.item(12).unwrap().start, Tick::from_seconds(12.0));
+        lengthened.validate().unwrap();
+    }
+
+    #[test]
+    fn ripple_trim_and_remove_participate_in_history() {
+        let mut project = project_with_one_clip();
+        project.items_mut(1).unwrap().push(Item::new(
+            12,
+            1,
+            Tick::from_seconds(10.0),
+            Tick::from_seconds(3.0),
+            Tick::from_seconds(8.0),
+        ));
+        let original = project.clone();
+        let mut history = History::new(project);
+        history.apply(&Command::RippleTrimItem {
+            item_id: 10,
+            new_source_in: None,
+            new_duration: Some(Tick::from_seconds(6.0)),
+        }).unwrap();
+        assert_eq!(history.project().item(12).unwrap().start, Tick::from_seconds(8.0));
+        assert!(history.undo());
+        assert_eq!(history.project().item(12).unwrap().start, Tick::from_seconds(10.0));
+        assert!(history.redo());
+        history.apply(&Command::RippleRemoveItem { item_id: 10 }).unwrap();
+        assert_eq!(history.project().items(1).unwrap().len(), 1);
+        assert!(history.undo());
+        assert_eq!(history.project().item(10).unwrap().duration, Tick::from_seconds(6.0));
+        assert_eq!(history.project().item(12).unwrap().start, Tick::from_seconds(8.0));
+        assert_ne!(history.project(), &original);
     }
 
     #[test]
