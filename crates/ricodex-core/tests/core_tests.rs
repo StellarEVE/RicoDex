@@ -414,6 +414,7 @@ fn song_selection_and_source_trims_round_trip() {
     project.song_asset_id = Some(3);
     project.assets[0].intro_trim = Tick::from_seconds(1.25);
     project.assets[0].outro_trim = Tick::from_seconds(2.0);
+    project.items_mut(10).unwrap()[0].source_in = Tick::from_seconds(1.25);
     let loaded = Project::from_json(&project.to_json().unwrap()).unwrap();
     assert_eq!(loaded.song_asset_id, Some(3));
     assert_eq!(loaded.assets[0].intro_trim, Tick::from_seconds(1.25));
