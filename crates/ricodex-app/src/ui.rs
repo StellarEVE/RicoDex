@@ -513,6 +513,14 @@ impl EditorApp {
             }
             if self.state.pipeline_running() {
                 ui.label("analysis is running; its progress lives on the Cut page");
+            } else if self.state.has_manual_edits {
+                ui.label(
+                    RichText::new(
+                        "undo your timeline edits before starting another analysis; current generation cannot merge edited clips yet",
+                    )
+                    .color(SILVER_DIM)
+                    .small(),
+                );
             } else if !can {
                 ui.label(
                     RichText::new(
