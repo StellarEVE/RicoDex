@@ -700,10 +700,10 @@ impl EditorApp {
             });
         match selected {
             Some(clip) => {
-                let mut start_seconds = clip.start.to_seconds();
                 let mut duration_seconds = clip.duration.to_seconds();
                 let mut source_in_seconds = clip.source_in.to_seconds();
-                let mut edit_changed = false;
+                let mut new_duration = None;
+                let mut new_source_in = None;
                 let mut split_requested = false;
                 let mut delete_requested = false;
                 let mut pin_requested = false;
@@ -724,40 +724,45 @@ impl EditorApp {
                             }
                         ));
 
-                        ui.horizontal(|ui| {
-                            ui.label("Timeline start");
-                            edit_changed |= ui
-                                .add(
-                                    egui::DragValue::new(&mut start_seconds)
-                                        .speed(0.05)
-                                        .fixed_decimals(2)
-                                        .suffix(" s"),
-                                )
-                                .changed();
-                        });
+                        ui.label(format!("timeline start: {:.2} s", clip.start.to_seconds()));
+                        let source_duration = self
+                            .state
+                            .asset_duration(clip.asset_id)
+                            .map(|duration| duration.to_seconds())
+                            .unwrap_or(36000.0);
                         ui.horizontal(|ui| {
                             ui.label("Duration");
-                            edit_changed |= ui
+                            if ui
                                 .add(
                                     egui::DragValue::new(&mut duration_seconds)
                                         .speed(0.05)
-                                        .range(0.01..=36000.0)
+                                        .range(
+                                            0.01
+                                                ..=(source_duration - clip.source_in.to_seconds())
+                                                    .max(0.01),
+                                        )
                                         .fixed_decimals(2)
                                         .suffix(" s"),
                                 )
-                                .changed();
+                                .changed()
+                            {
+                                new_duration = Some(Tick::from_seconds(duration_seconds.max(0.01)));
+                            }
                         });
                         ui.horizontal(|ui| {
                             ui.label("Source in");
-                            edit_changed |= ui
+                            if ui
                                 .add(
                                     egui::DragValue::new(&mut source_in_seconds)
                                         .speed(0.05)
-                                        .range(0.0..=36000.0)
+                                        .range(0.0..=source_duration)
                                         .fixed_decimals(2)
                                         .suffix(" s"),
                                 )
-                                .changed();
+                                .changed()
+                            {
+                                new_source_in = Some(Tick::from_seconds(source_in_seconds.max(0.0)));
+                            }
                         });
 
                         ui.add_space(8.0);
@@ -797,12 +802,12 @@ impl EditorApp {
                         at: clip.start + Tick::from_ticks(clip.duration.as_ticks() / 2),
                         new_item_id,
                     })
-                } else if edit_changed {
+                } else if new_duration.is_some() || new_source_in.is_some() {
                     Some(Command::TrimItem {
                         item_id: clip.item_id,
-                        new_start: Some(Tick::from_seconds(start_seconds.max(0.0))),
-                        new_source_in: Some(Tick::from_seconds(source_in_seconds.max(0.0))),
-                        new_duration: Some(Tick::from_seconds(duration_seconds.max(0.01))),
+                        new_start: None,
+                        new_source_in,
+                        new_duration,
                     })
                 } else {
                     None
