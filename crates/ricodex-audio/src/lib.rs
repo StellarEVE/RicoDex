@@ -219,7 +219,7 @@ pub fn decode_stereo_file(path: &Path) -> Result<DecodedStereoAudio> {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::DecoderOptions;
     use symphonia::core::errors::Error as SymError;
-    use symphonia::core::formats::{FormatOptions, TrackType};
+    use symphonia::core::formats::FormatOptions;
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
@@ -238,12 +238,17 @@ pub fn decode_stereo_file(path: &Path) -> Result<DecodedStereoAudio> {
         .map_err(|e| AudioError::Message(format!("cannot probe {}: {e}", path.display())))?;
     let mut format = probed.format;
 
-    // Container metadata does not always expose every audio parameter
-    // before decoding (AAC in MP4 can omit the channel layout here).
-    // Ask the demuxer for its audio track instead of requiring optional
-    // sample-rate and channel fields to be populated up front.
+    // The MP4 demuxer can leave optional channel-layout metadata unset
+    // until the AAC packet is decoded. Sample rate is present in the audio
+    // track parameters, while video tracks do not expose an audio sample rate.
+    // Do not require channels to be populated before creating the decoder.
     let track = format
-        .default_track(TrackType::Audio)
+        .tracks()
+        .iter()
+        .find(|track| {
+            track.codec_params.codec != CODEC_TYPE_NULL
+                && track.codec_params.sample_rate.is_some()
+        })
         .ok_or_else(|| AudioError::Message(format!("no audio track in {}", path.display())))?
         .clone();
 
