@@ -48,17 +48,17 @@ jobs:
           "FFMPEG_ARCHIVE_SHA256=$archiveHash" | Out-File -FilePath $env:GITHUB_ENV -Append
           Expand-Archive ffmpeg-shared.zip -DestinationPath ffmpeg-shared
           $root = Get-ChildItem ffmpeg-shared -Directory | Select-Object -First 1
-          if (-not (Test-Path "$($root.FullName)\\include\\libavutil\\avutil.h")) { throw "FFmpeg headers were not found." }
-          if (-not (Test-Path "$($root.FullName)\\lib\\avutil.lib")) { throw "FFmpeg import libraries were not found." }
+          if (-not (Test-Path "$($root.FullName)\include\libavutil\avutil.h")) { throw "FFmpeg headers were not found." }
+          if (-not (Test-Path "$($root.FullName)\lib\avutil.lib")) { throw "FFmpeg import libraries were not found." }
           "FFMPEG_ROOT=$($root.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Configure FFmpeg and ABI bindings
         shell: pwsh
         run: |
-          "FFMPEG_DLL_PATH=$env:FFMPEG_ROOT\\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "FFMPEG_INCLUDE_DIR=$env:FFMPEG_ROOT\\include" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "FFMPEG_BINDING_PATH=$PWD\\vendor\\ffmpeg8_1_binding.rs" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "FFMPEG_DLL_PATH=$env:FFMPEG_ROOT\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "FFMPEG_INCLUDE_DIR=$env:FFMPEG_ROOT\include" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "FFMPEG_BINDING_PATH=$PWD\vendor\ffmpeg8_1_binding.rs" | Out-File -FilePath $env:GITHUB_ENV -Append
           "WGPU_BACKEND=vulkan" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "$env:FFMPEG_ROOT\\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "$env:FFMPEG_ROOT\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: Download GPL FFmpeg for H.264 test fixtures only
         shell: pwsh
         run: |
@@ -66,7 +66,7 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile ffmpeg-test-gpl.zip
           Expand-Archive ffmpeg-test-gpl.zip -DestinationPath ffmpeg-test-gpl
           $testRoot = Get-ChildItem ffmpeg-test-gpl -Directory | Select-Object -First 1
-          $testFfmpeg = Join-Path $testRoot.FullName "bin\\ffmpeg.exe"
+          $testFfmpeg = Join-Path $testRoot.FullName "bin\ffmpeg.exe"
           if (-not (Test-Path $testFfmpeg)) { throw "Test-only FFmpeg executable was not found." }
           $encoders = (& $testFfmpeg -hide_banner -encoders 2>&1 | Out-String)
           if ($encoders -notmatch "libx264") { throw "Test-only FFmpeg build does not provide libx264." }
@@ -85,20 +85,20 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "$PWD\\vc_redist.x64.exe"
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "$PWD\vc_redist.x64.exe"
       - name: Stage portable application and runtime dependencies
         if: github.event_name == 'workflow_dispatch' && inputs.package_windows
         shell: pwsh
         run: |
           ./tools/package_windows.ps1 `
             -FfmpegRoot "$env:FFMPEG_ROOT" `
-            -VcRedistPath "$PWD\\vc_redist.x64.exe" `
+            -VcRedistPath "$PWD\vc_redist.x64.exe" `
             -FfmpegArchiveSha256 "$env:FFMPEG_ARCHIVE_SHA256"
       - name: Create portable ZIP
         if: github.event_name == 'workflow_dispatch' && inputs.package_windows
         shell: pwsh
         run: |
-          Compress-Archive -Path "dist\\portable\\*" -DestinationPath "dist\\HyperDexStudio-Windows-x64.zip" -CompressionLevel Optimal
+          Compress-Archive -Path "dist\portable\*" -DestinationPath "dist\HyperDexStudio-Windows-x64.zip" -CompressionLevel Optimal
       - name: Install Inno Setup
         if: github.event_name == 'workflow_dispatch' && inputs.package_windows
         run: choco install innosetup --yes --no-progress
@@ -106,9 +106,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.package_windows
         shell: pwsh
         run: |
-          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\\Inno Setup *\\ISCC.exe" | Select-Object -First 1
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe" | Select-Object -First 1
           if (-not $iscc) { throw "Inno Setup compiler was not found." }
-          & $iscc.FullName "installer\\HyperDexStudio.iss"
+          & $iscc.FullName "installer\HyperDexStudio.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
       - name: Upload Windows packages
         if: github.event_name == 'workflow_dispatch' && inputs.package_windows

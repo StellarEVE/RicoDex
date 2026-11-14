@@ -133,18 +133,11 @@ The release desktop executable is named `hyperdex-app.exe` and is branded HyperD
 
 ## Windows CI and packages
 
-The [Windows CI workflow](.github/workflows/ci.yml) runs for pull requests targeting `main`, pushes to `main`, and manual workflow dispatches. It:
+The [Windows CI workflow](.github/workflows/ci.yml) validates pull requests targeting `main` and code pushes to `main`. Documentation-only changes do not trigger push/PR CI. Each ordinary run configures FFmpeg, audits the H.264 test-fixture setup, runs `cargo test --workspace`, and builds the release workspace.
 
-1. Downloads the FFmpeg LGPL shared development build and configures the Rust bindings.
-2. Downloads a separate GPL-enabled FFmpeg executable only to generate H.264 test fixtures. This test-only executable is not the FFmpeg runtime packaged with HyperDex.
-3. Audits test configuration and runs `cargo test --workspace`.
-4. Builds the release workspace.
-5. Stages the desktop app, CLI executable, FFmpeg runtime DLLs, Microsoft Visual C++ Redistributable, and notices.
-6. Produces a portable ZIP and an Inno Setup installer as workflow artifacts.
+Portable packaging is separate from routine validation. To produce a Windows package, manually dispatch the workflow and set `package_windows=true`. That path stages the desktop app, CLI executable, FFmpeg runtime DLLs, Microsoft Visual C++ Redistributable and notices, then creates the portable ZIP and Inno Setup installer. Package artifacts are retained for 3 days. Newer runs for the same branch or pull request cancel obsolete in-progress runs.
 
-Artifacts are retained for 14 days. The workflow does not publish a GitHub Release.
-
-These packages are experimental CI validation artifacts, not approved public redistribution releases. The current packaging uses the FFmpeg LGPL shared variant, but that choice alone does not establish compliance for every transitive dependency. The full DLL licence inventory, corresponding source/build materials, notices, and any applicable redistribution obligations must be reviewed before public binary distribution. See [Licensing and distribution](docs/LICENSING.md).
+The workflow does not publish a GitHub Release. Keep only the newest useful, fully validated package in Actions artifact storage and delete superseded artifacts. These packages are experimental CI validation artifacts, not approved public redistribution releases. The current packaging uses the FFmpeg LGPL shared variant, but that choice alone does not establish compliance for every transitive dependency. The full DLL licence inventory, corresponding source/build materials, notices, and any applicable redistribution obligations must be reviewed before public binary distribution. See [Licensing and distribution](docs/LICENSING.md).
 
 ## Project documents
 
