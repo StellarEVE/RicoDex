@@ -23,7 +23,7 @@
 use std::cell::Cell;
 use std::path::PathBuf;
 
-use ricodex_core::{AssetKind, Project, Tick, TrackId, TrackKind, TICKS_PER_SECOND};
+use ricodex_core::{AssetKind, Item, Project, Tick, TrackId, TrackKind, TICKS_PER_SECOND};
 use ricodex_platform::VideoDecoder;
 
 use crate::cache::{RenderCache, TransitionUnitKey};
@@ -41,6 +41,39 @@ use crate::timeline::{TimelineTransitionMap, TimelineTransitionSegment};
 pub struct StereoAudioInput<'a> {
     pub interleaved_samples: &'a [f32],
     pub sample_rate: u32,
+}
+
+/// Decoded stereo PCM for one audio asset used by an Audio-track item.
+#[derive(Clone, Copy, Debug)]
+pub struct StereoAudioAssetInput<'a> {
+    pub asset_id: u64,
+    pub interleaved_samples: &'a [f32],
+    pub sample_rate: u32,
+}
+
+struct PreparedAudioTrackItem<'a> {
+    item: Item,
+    interleaved_samples: &'a [f32],
+    sample_rate: u32,
+}
+
+fn sample_stereo_at_tick(samples: &[f32], sample_rate: u32, time: Tick) -> [f32; 2] {
+    if sample_rate == 0 || time < Tick::ZERO || samples.len() < 2 || samples.len() % 2 != 0 {
+        return [0.0, 0.0];
+    }
+    let numerator = time.as_ticks() as i128 * sample_rate as i128;
+    let denominator = TICKS_PER_SECOND as i128;
+    let source_index = (numerator / denominator) as usize;
+    let fraction = (numerator % denominator) as f32 / denominator as f32;
+    let frame_count = samples.len() / 2;
+    let next_index = source_index.saturating_add(1);
+    let sample = |index: usize, channel: usize| -> f32 {
+        if index < frame_count { samples[index * 2 + channel] } else { 0.0 }
+    };
+    [
+        sample(source_index, 0) + (sample(next_index, 0) - sample(source_index, 0)) * fraction,
+        sample(source_index, 1) + (sample(next_index, 1) - sample(source_index, 1)) * fraction,
+    ]
 }
 
 /// The transition to render between the two items: its form, its
@@ -513,7 +546,7 @@ pub fn render_sequential_with_audio(
     audio: Option<StereoAudioInput<'_>>,
     progress: &mut dyn FnMut(f32),
 ) -> Result<SequentialOutcome, RenderError> {
-    render_video_tracks_with_audio(project, &[track_id], output_path, audio, progress)
+    render_video_tracks_with_audio(project, &[track_id], output_path, audio, None, progress)
 }
 
 /// Export every visible video track in project stacking order.
@@ -537,11 +570,24 @@ pub fn render_timeline_with_audio(
     audio: Option<StereoAudioInput<'_>>,
     progress: &mut dyn FnMut(f32),
 ) -> Result<SequentialOutcome, RenderError> {
+    render_timeline_with_audio_items(project, output_path, audio, &[], progress)
+}
+
+/// Export a timeline with an optional selected-song bed and decoded PCM for
+/// placed Audio-track items. The song uses output time; placed items use the
+/// transition-compressed source timeline.
+pub fn render_timeline_with_audio_items(
+    project: &Project,
+    output_path: &std::path::Path,
+    audio: Option<StereoAudioInput<'_>>,
+    audio_assets: &[StereoAudioAssetInput<'_>],
+    progress: &mut dyn FnMut(f32),
+) -> Result<SequentialOutcome, RenderError> {
     let track_ids: Vec<TrackId> = project.tracks.iter()
         .filter(|track| track.kind == TrackKind::Video && !track.hidden)
         .map(|track| track.id)
         .collect();
-    render_video_tracks_with_audio(project, &track_ids, output_path, audio, progress)
+    render_video_tracks_with_audio(project, &track_ids, output_path, audio, Some(audio_assets), progress)
 }
 
 fn render_video_tracks_with_audio(
@@ -549,6 +595,7 @@ fn render_video_tracks_with_audio(
     track_ids: &[TrackId],
     output_path: &std::path::Path,
     audio: Option<StereoAudioInput<'_>>,
+    audio_assets: Option<&[StereoAudioAssetInput<'_>]>,
     progress: &mut dyn FnMut(f32),
 ) -> Result<SequentialOutcome, RenderError> {
     const OUTPUT_AUDIO_RATE: u32 = 48_000;
@@ -557,17 +604,40 @@ fn render_video_tracks_with_audio(
         reason: e.to_string(),
     })?;
     if let Some(input) = audio {
-        if input.sample_rate == 0 || input.interleaved_samples.len() % 2 != 0 {
+        if input.sample_rate == 0 || input.interleaved_samples.len() % 2 != 0 || input.interleaved_samples.is_empty() {
             return Err(RenderError::BadProject {
                 reason: "selected song must contain interleaved stereo samples at a valid sample rate".to_string(),
             });
         }
-        if input.interleaved_samples.is_empty() {
-            return Err(RenderError::BadProject {
-                reason: "selected song decoded to no audio samples".to_string(),
-            });
+    }
+
+    let mut audio_track_items = Vec::new();
+    if let Some(audio_assets) = audio_assets {
+        for track in project.tracks.iter()
+            .filter(|track| track.kind == TrackKind::Audio && !track.hidden && !track.muted)
+        {
+            if let Some(items) = project.items(track.id) {
+                for item in items.iter().filter(|item| item.enabled) {
+                    let input = audio_assets.iter()
+                        .find(|input| input.asset_id == item.asset_id)
+                        .ok_or_else(|| RenderError::BadProject {
+                            reason: format!("audio item {} has no decoded PCM asset {}", item.id, item.asset_id),
+                        })?;
+                    if input.sample_rate == 0 || input.interleaved_samples.is_empty() || input.interleaved_samples.len() % 2 != 0 {
+                        return Err(RenderError::BadProject {
+                            reason: format!("audio asset {} must contain interleaved stereo samples at a valid sample rate", item.asset_id),
+                        });
+                    }
+                    audio_track_items.push(PreparedAudioTrackItem {
+                        item: item.clone(),
+                        interleaved_samples: input.interleaved_samples,
+                        sample_rate: input.sample_rate,
+                    });
+                }
+            }
         }
     }
+    let has_audio_output = audio.is_some() || !audio_track_items.is_empty();
 
     let mut track_readers = Vec::new();
     let mut start_time: Option<Tick> = None;
@@ -630,14 +700,14 @@ fn render_video_tracks_with_audio(
 
     // Audio duration follows the exact output frame count, not an independently
     // rounded Tick duration, so video and soundtrack share the same endpoint.
-    let total_audio_samples = if audio.is_some() {
+    let total_audio_samples = if has_audio_output {
         ((total_frames as i128 * OUTPUT_AUDIO_RATE as i128 * fps_den as i128)
             / fps_num as i128)
             .max(0) as usize
     } else {
         0
     };
-    let mut encoder = if audio.is_some() {
+    let mut encoder = if has_audio_output {
         ricodex_platform::VideoEncoder::create_with_audio(
             output_path,
             width,
@@ -665,7 +735,7 @@ fn render_video_tracks_with_audio(
         encoder.encode_rgb24(&frame.to_rgb24())?;
         written += 1;
 
-        if let Some(input) = audio {
+        if has_audio_output {
             let next_sample = ((written as i128
                 * OUTPUT_AUDIO_RATE as i128
                 * fps_den as i128)
@@ -673,29 +743,54 @@ fn render_video_tracks_with_audio(
                 .max(0) as usize;
             let audio_end = next_sample.min(total_audio_samples);
             if audio_end > audio_cursor {
-                let source_frames = input.interleaved_samples.len() / 2;
                 let mut chunk = Vec::with_capacity((audio_end - audio_cursor) * 2);
                 for output_sample in audio_cursor..audio_end {
-                    let source_numerator =
-                        output_sample as u128 * input.sample_rate as u128;
-                    let source_index =
-                        (source_numerator / OUTPUT_AUDIO_RATE as u128) as usize;
-                    let remainder =
-                        (source_numerator % OUTPUT_AUDIO_RATE as u128) as f32;
-                    let fraction = remainder / OUTPUT_AUDIO_RATE as f32;
-                    for channel in 0..2 {
-                        let a = if source_index < source_frames {
-                            input.interleaved_samples[source_index * 2 + channel]
-                        } else {
-                            0.0
-                        };
-                        let b = if source_index + 1 < source_frames {
-                            input.interleaved_samples[(source_index + 1) * 2 + channel]
-                        } else {
-                            0.0
-                        };
-                        chunk.push(a + (b - a) * fraction);
+                    let mut mixed = [0.0f32; 2];
+
+                    // The selected song is output-time audio and remains at
+                    // normal speed through transition-compressed video.
+                    if let Some(input) = audio {
+                        let numerator = output_sample as u128 * input.sample_rate as u128;
+                        let source_index = (numerator / OUTPUT_AUDIO_RATE as u128) as usize;
+                        let fraction = (numerator % OUTPUT_AUDIO_RATE as u128) as f32 / OUTPUT_AUDIO_RATE as f32;
+                        let source_frames = input.interleaved_samples.len() / 2;
+                        for channel in 0..2 {
+                            let a = if source_index < source_frames { input.interleaved_samples[source_index * 2 + channel] } else { 0.0 };
+                            let b = if source_index + 1 < source_frames { input.interleaved_samples[(source_index + 1) * 2 + channel] } else { 0.0 };
+                            mixed[channel] += a + (b - a) * fraction;
+                        }
                     }
+
+                    // Placed clips sample the shared compressed project clock.
+                    let sample_offset = Tick::from_ticks(
+                        (output_sample as i128 * TICKS_PER_SECOND as i128 / OUTPUT_AUDIO_RATE as i128) as i64,
+                    );
+                    let output_time = start_time.checked_add(sample_offset)
+                        .ok_or_else(|| RenderError::BadProject {
+                            reason: "audio sample timestamp exceeded Tick range".to_string(),
+                        })?;
+                    if let Some(source_timeline_time) = transition_map.source_time_at(output_time) {
+                        for source in &audio_track_items {
+                            if source_timeline_time < source.item.start || source_timeline_time >= source.item.end() {
+                                continue;
+                            }
+                            let source_offset = source_timeline_time.checked_sub(source.item.start)
+                                .ok_or_else(|| RenderError::BadProject {
+                                    reason: "audio source offset became negative".to_string(),
+                                })?;
+                            let source_time = source.item.source_in.checked_add(source_offset)
+                                .ok_or_else(|| RenderError::BadProject {
+                                    reason: "audio source timestamp exceeded Tick range".to_string(),
+                                })?;
+                            let sample = sample_stereo_at_tick(source.interleaved_samples, source.sample_rate, source_time);
+                            mixed[0] += sample[0];
+                            mixed[1] += sample[1];
+                        }
+                    }
+
+                    // Apply a deterministic ceiling until gain/limiter controls exist.
+                    chunk.push(mixed[0].clamp(-1.0, 1.0));
+                    chunk.push(mixed[1].clamp(-1.0, 1.0));
                 }
                 encoder.encode_stereo_audio(&chunk)?;
                 audio_cursor = audio_end;

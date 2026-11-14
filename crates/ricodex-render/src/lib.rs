@@ -53,3 +53,5 @@ pub use timeline::{
     TimelineFrame, TimelineFrameSchedule, TimelineLayer, TimelineTransitionFrame,
     TimelineTransitionMap, TimelineTransitionMapError, TimelineTransitionSegment,
 };
+
+pub use job::{render_timeline_with_audio_items, StereoAudioAssetInput};

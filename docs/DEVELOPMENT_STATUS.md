@@ -78,7 +78,7 @@ The transition work is split into two distinct parts:
 The following remain planned or incomplete. Do not describe them as supported end-to-end:
 
 - Preview playback driven by the same timeline schedule and renderer as export.
-- Audio-item placement is exposed in Edit: users can create audio tracks, append probed audio assets, mute tracks and remove audio items. The app-driven exporter does not yet mix these audio items into AAC; only the selected-song bed is audible in current exports.
+- Audio-item placement is exposed in Edit: users can create audio tracks, append probed audio assets, mute tracks and remove audio items. The renderer now mixes decoded audio-item PCM into AAC, but the app export worker is not yet connected to decode and pass those assets.
 - Audio captured from source video clips.
 - Mixing of multiple audio sources, per-clip/per-track gain, fades and loudness normalization.
 - Per-clip and track-level full-timeline effects.

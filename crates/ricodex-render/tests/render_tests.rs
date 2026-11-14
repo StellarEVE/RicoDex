@@ -19,7 +19,7 @@ use ricodex_core::{
     Asset, AssetKind, Fingerprint, Item, ItemTransition, Project, Tick, Track, TrackKind,
 };
 use ricodex_render::{
-    apply_effects, composite_cpu, composite_video_layers, frame_difference, render_project, render_sequential_with_audio, render_timeline, render_timeline_with_audio, EffectOp, Frame, StereoAudioInput,
+    apply_effects, composite_cpu, composite_video_layers, frame_difference, render_project, render_sequential_with_audio, render_timeline, render_timeline_with_audio, render_timeline_with_audio_items, StereoAudioAssetInput, EffectOp, Frame, StereoAudioInput,
     GpuCompositor, RenderCache, RenderRequest, TransitionKind, TransitionParams,
     TransitionSpec,
 };
@@ -655,6 +655,96 @@ fn timeline_transition_is_composited_between_lower_and_upper_tracks() {
         mean_abs_diff(&actual, &expected_upper) < 14.0,
         "upper video track must composite above the active transition, difference {}",
         mean_abs_diff(&actual, &expected_upper)
+    );
+}
+
+#[test]
+fn timeline_export_mixes_audio_track_items_to_aac_without_a_song_bed() {
+    let dir = test_dir("audio-track-mix");
+    let (a, b) = make_clips(&dir);
+    let source_rate = 44_100u32;
+    let mut source_samples = Vec::with_capacity((source_rate * 2 * 2) as usize);
+    for index in 0..source_rate * 2 {
+        let time = index as f32 / source_rate as f32;
+        source_samples.push((2.0 * std::f32::consts::PI * 440.0 * time).sin() * 0.5);
+        source_samples.push((2.0 * std::f32::consts::PI * 880.0 * time).sin() * 0.25);
+    }
+
+    let mut project = two_clip_project(&a, &b);
+    project.assets.push(Asset {
+        id: 3,
+        fingerprint: Fingerprint::new(3003, 77, 88, 99),
+        path_hint: "placed-audio.wav".into(),
+        kind: AssetKind::Audio,
+        duration: Tick::from_seconds(2.0),
+        intro_trim: Tick::ZERO,
+        outro_trim: Tick::ZERO,
+    });
+    project.add_track(Track::new(2, TrackKind::Audio, "A1"));
+    project.items_mut(2).unwrap().push(Item::new(10, 3, Tick::ZERO, Tick::from_seconds(2.0), Tick::ZERO));
+
+    let output = dir.join("audio-track.mp4");
+    let audio_asset = StereoAudioAssetInput {
+        asset_id: 3,
+        interleaved_samples: &source_samples,
+        sample_rate: source_rate,
+    };
+    let outcome = render_timeline_with_audio_items(&project, &output, None, &[audio_asset], &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 40);
+    assert_eq!(outcome.duration, Tick::from_seconds(4.0));
+
+    let exported = ricodex_audio::decode_stereo_file(&output)
+        .expect("a placed audio item must produce AAC even without a selected-song bed");
+    assert_eq!(exported.sample_rate, 48_000);
+    assert!((exported.duration_seconds() - 4.0).abs() < 0.06);
+
+    let left = positive_zero_crossings(&exported.samples, 0, 48_000 / 5, 48_000 * 9 / 10);
+    let right = positive_zero_crossings(&exported.samples, 1, 48_000 / 5, 48_000 * 9 / 10);
+    assert!((250..=360).contains(&left), "440 Hz left channel crossings={left}");
+    assert!((520..=720).contains(&right), "880 Hz right channel crossings={right}");
+
+    let silent_start = 48_000 * 5 / 2;
+    let silent_end = 48_000 * 7 / 2;
+    let tail_rms = (silent_start * 2..silent_end * 2)
+        .map(|index| exported.samples[index] * exported.samples[index])
+        .sum::<f32>() / ((silent_end - silent_start) * 2) as f32;
+    assert!(tail_rms.sqrt() < 0.02, "audio should be silent after item end, RMS={}", tail_rms.sqrt());
+}
+
+#[test]
+fn muted_hidden_and_disabled_audio_items_do_not_create_aac_audio() {
+    let dir = test_dir("audio-track-muted");
+    let (a, b) = make_clips(&dir);
+    let source_samples = vec![0.25f32; (48_000 * 2 * 2) as usize];
+
+    let mut project = two_clip_project(&a, &b);
+    project.assets.push(Asset {
+        id: 3,
+        fingerprint: Fingerprint::new(3004, 71, 81, 91),
+        path_hint: "muted.wav".into(),
+        kind: AssetKind::Audio,
+        duration: Tick::from_seconds(2.0),
+        intro_trim: Tick::ZERO,
+        outro_trim: Tick::ZERO,
+    });
+    project.add_track(Track::new(2, TrackKind::Audio, "Muted"));
+    project.tracks.iter_mut().find(|track| track.id == 2).unwrap().muted = true;
+    project.items_mut(2).unwrap().push(Item::new(20, 3, Tick::ZERO, Tick::from_seconds(2.0), Tick::ZERO));
+    project.add_track(Track::new(3, TrackKind::Audio, "Hidden"));
+    project.tracks.iter_mut().find(|track| track.id == 3).unwrap().hidden = true;
+    project.items_mut(3).unwrap().push(Item::new(21, 3, Tick::ZERO, Tick::from_seconds(2.0), Tick::ZERO));
+    project.add_track(Track::new(4, TrackKind::Audio, "Disabled"));
+    let mut disabled = Item::new(22, 3, Tick::ZERO, Tick::from_seconds(2.0), Tick::ZERO);
+    disabled.enabled = false;
+    project.items_mut(4).unwrap().push(disabled);
+
+    let output = dir.join("muted-audio-items.mp4");
+    let audio_asset = StereoAudioAssetInput { asset_id: 3, interleaved_samples: &source_samples, sample_rate: 48_000 };
+    let outcome = render_timeline_with_audio_items(&project, &output, None, &[audio_asset], &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 40);
+    assert!(
+        ricodex_audio::decode_stereo_file(&output).is_err(),
+        "muted, hidden and disabled items must not create an audio stream"
     );
 }
 

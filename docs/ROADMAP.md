@@ -149,7 +149,7 @@ Verified foundations:
 
 Remaining work, in implementation order:
 
-1. **Timeline audio placement and mixing.** The Core foundation validates asset/track-kind compatibility and creates tracks through an undoable `AddTrack` command. The Edit page now lets users add audio tracks, append a probed audio asset as a timeline item, mute a track and remove an item. Placement uses Core commands and undo/redo. Next decode and mix multiple synchronized stereo audio layers. This export work must keep the selected-song bed at normal output-time speed and map placed audio items through the same transition-compressed timeline as video. Preserve the selected-song bed as a supported source. Add source-clip audio, per-item/track gain, fades and normalization incrementally, with MP4 decode tests for mix content and synchronization.
+1. **Timeline audio placement and mixing.** The Core foundation validates asset/track-kind compatibility and creates tracks through an undoable `AddTrack` command. The Edit page lets users add audio tracks, append probed audio assets, mute tracks and remove items through Core commands and undo/redo. The renderer now accepts decoded stereo audio assets and mixes placed items with the optional song bed. App export worker integration remains next. This export work must keep the selected-song bed at normal output-time speed and map placed audio items through the same transition-compressed timeline as video. Preserve the selected-song bed as a supported source. Add source-clip audio, per-item/track gain, fades and normalization incrementally, with MP4 decode tests for mix content and synchronization.
 2. **Preview/export parity.** Drive preview playback and final output from the same schedule, source-time mapping, track composition, transition and audio rules. Preserve a correct software path and bounded render work.
 3. **Full-timeline effects.** Apply per-clip and track-level effects through the same pipeline used by preview and export.
 4. **Export finalization and cancellation.** Write to a temporary destination and atomically finalize on success; implement true cancellation during decoding/rendering/encoding, accurate progress and useful errors.
@@ -261,7 +261,7 @@ The Core model enforces track and asset compatibility: Audio tracks accept Audio
 
 Track creation is represented by `Command::AddTrack`. It creates the track and corresponding empty item group as one atomic Core edit, participates in snapshot undo/redo, and relies on normal project validation to reject duplicate track IDs. Tests cover valid and invalid asset/track combinations, AddTrack undo/redo, and duplicate-ID rejection.
 
-The Edit-page placement controls are described in the next subsection. The remaining audio work is decoding placed assets and mixing them with the selected-song bed in MP4 export. Do not describe timeline audio as audible in exports until that mixer is verified.
+The Edit page exposes audio-track creation, append-only placement of probed audio assets, mute/unmute and item removal. The renderer accepts decoded placed assets and mixes them with the optional selected-song bed into stereo AAC. The app export worker still needs to decode and supply the unique assets referenced by visible, unmuted tracks. This renderer slice requires its own Windows CI run.
 
 
 ### Phase 2.3 implementation progress: audio-item placement
@@ -271,3 +271,10 @@ The Edit page now exposes audio tracks separately from the video timeline. Users
 Each placement is a Core `InsertItem` command and is marked manual/pinned in the same history entry. Track creation is `Command::AddTrack`; mute and removal use existing Core commands. AppState tests cover sequential placement, saved source/timeline coordinates, one-step undo, track removal by undo, wrong track/asset kinds and unready files.
 
 This is timeline metadata and editing only. The app exporter still needs to decode placed audio assets and mix them into the existing selected-song stereo AAC stream. Do not claim placed audio is audible in exports until MP4 integration tests verify it.
+
+
+### Phase 2.3 implementation progress: stereo audio-item renderer
+
+The renderer accepts decoded PCM inputs keyed by audio asset ID. Enabled items on visible, unmuted Audio tracks are sampled against the shared transition-compressed source timeline and summed into the synchronized stereo AAC stream. The selected-song bed is sampled on output time and is not sped up by transitions. Placed audio can produce AAC even without a selected-song bed. Muted tracks, hidden tracks and disabled items do not contribute.
+
+The current mixer sums sources and clamps samples to the legal PCM range. Per-item volume, fades, normalization and a dedicated limiter remain separate work. MP4 integration tests cover placed audio without a song bed, stereo channels, item-end silence and muted/hidden/disabled items. The app export worker still needs to decode unique audio assets and pass their buffers into this renderer API before the complete user workflow can be called supported.
