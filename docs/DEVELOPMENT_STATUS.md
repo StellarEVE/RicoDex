@@ -3,7 +3,13 @@
 **Status date:** 14 November 2026  
 **Repository:** https://github.com/StellarEVE/HyperDex  
 **Working branch:** `main`  
-**Application source last changed:** `fd5e2089f70d458dddd34653c128e9cbabcba267`. The current `main` head at the time of this review was `2ddd85a3aa9dc8dfa6e8dcb36bb0e7015a547726`, a documentation-only commit after that source change. Earlier milestones passed complete Windows CI: schema-4 validation in run [#85](https://github.com/StellarEVE/HyperDex/actions/runs/43560350393), transition mapping in run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742), full-timeline transition export in run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966), Edit-page transition controls in run [#92](https://github.com/StellarEVE/HyperDex/actions/runs/43566269122), Core audio-track validation in run [#93](https://github.com/StellarEVE/HyperDex/actions/runs/43567127799), audio placement in run [#94](https://github.com/StellarEVE/HyperDex/actions/runs/43567806957), and renderer-side stereo audio mixing in run [#95](https://github.com/StellarEVE/HyperDex/actions/runs/43568365543). Runs #102 and #103, for commits `fd5e208` and `2ddd85a`, failed before recording any workflow steps; their jobs have no step details or downloadable logs. They therefore provide no source build or test result.
+**Application source last changed:** `fd5e2089f70d458dddd34653c128e9cbabcba267`. The latest reviewed `main` commit is `211d6ad73cfbe40aaef05af19b98260eabbb3ca1`. Earlier complete Windows CI milestones include schema-4 validation (#85), transition mapping (#90), full-timeline transition export (#91), Edit-page transition controls (#92), Core audio-track validation (#93), audio placement (#94), and renderer-side stereo mixing (#95). Run [#103, attempt 2](https://github.com/StellarEVE/HyperDex/actions/runs/43609816703) completed successfully for commit `2ddd85a`; run [#104](https://github.com/StellarEVE/HyperDex/actions/runs/43614319131) completed successfully for commit `211d6ad`. Both passed workspace tests, release build, Windows staging, portable ZIP creation, installer creation and artifact upload. The first attempts of #102 and #103 failed before workflow steps were recorded; #103 was later retried and passed. The repository is public, and hosted Windows runners are now executing normally.
+
+This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
+
+**Recorded local verification (owner-reported):** Windows `cargo test --locked --workspace` passes all 128 tests, strict Clippy passes with `-D warnings`, and `cargo build --locked --release --workspace` succeeds against FFmpeg 8.1.3. The app-worker MP4 test verifies placed-audio timing. These local checks were not independently reproduced in this review. Full Windows CI for the same application source subsequently passed in run #104. Interactive desktop smoke testing and formal transitive-library licensing review remain pending. `cargo audit` is unavailable in the recorded local environment, and GitHub Dependabot alerts are disabled, so a registry-backed advisory scan has not been completed.
+
+**CI storage snapshot and new policy:** Before the workflow policy change, the two-day history generated 39 Windows package artifacts of roughly 175 MiB each, approximately 6.7 GiB total. The latest fully validated package is attached to run #104. Superseded artifacts should be deleted, retaining only the latest useful validated package. The workflow is being changed so normal push/PR validation runs tests and a release build but does not package or upload binaries. Packaging requires an explicit manual dispatch with `package_windows=true`; new artifacts are retained for 3 days.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
@@ -104,7 +110,7 @@ The HyperDex Edit UI has a video clip editor plus a separate audio-track placeme
 
 ## 6. Recommended next implementation sequence
 
-1. Restore hosted-runner availability, then confirm successful Windows CI and packaging on the current `main` commit. Run #102 was blocked before the job started; its annotation points to an account-level Actions billing/spending restriction.
+1. Validate the revised CI policy on the next code milestone: confirm ordinary push/PR runs complete tests and release builds without packaging or artifact upload. Confirm manual dispatch with `package_windows=true` still creates a usable package.
 2. Complete interactive Windows smoke testing, especially exports with selected-song plus placed-audio and placed-audio only.
 3. Add source-video audio, per-item/track gain, fades, normalization and a dedicated limiter, with decoded-MP4 tests.
 4. Complete the FFmpeg and transitive-library licensing review before public binary redistribution.
@@ -115,7 +121,8 @@ Avoid beginning preview parity or cache redesign until the timeline transition i
 ## 7. Engineering constraints
 
 - Work directly on `main`; do not create a feature branch or PR unless the owner changes that instruction.
-- Make focused commits and verify each meaningful slice with Windows GitHub Actions.
+- Push only substantial, reviewable code batches or completed stages/milestones. After each milestone push, collect every CI failure and correct them together before one consolidated follow-up push.
+- Ordinary Windows CI runs tests and release builds only. Package artifacts are created only by manual dispatch with `package_windows=true`; retain them for 3 days and remove superseded artifacts.
 - Do not claim a feature or commit passed until its exact CI run has completed successfully.
 - Keep Core as the source of truth. UI edits go through Core commands and history.
 - Use integer `Tick` values for all timeline positions and durations.

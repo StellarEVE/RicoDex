@@ -1,6 +1,6 @@
 # Windows desktop smoke test
 
-Run this checklist against the latest portable ZIP or installer from GitHub Actions. Record the package type and commit SHA. A passing CI run is necessary, but does not replace interactive checks.
+Run this checklist against a portable ZIP or installer produced by a manual Windows CI dispatch with `package_windows=true`. Record the package type and commit SHA. A passing CI run is necessary, but does not replace interactive checks.
 
 ## Install and launch
 - [ ] Extract the portable ZIP or install the Inno Setup package.

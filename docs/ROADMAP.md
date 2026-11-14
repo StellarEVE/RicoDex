@@ -27,18 +27,27 @@ Treat the live repository as authoritative. First inspect the current `main` hea
 
 ### Required Git and CI workflow
 
-Work directly on main. Do not create a feature branch or pull request. Make focused commits, run the Windows GitHub Actions workflow after each meaningful implementation slice, inspect failures, fix them and do not claim success until the exact run completes successfully. Keep README.md, docs/ROADMAP.md and docs/DEVELOPMENT_STATUS.md accurate as the implementation changes.
+Work directly on `main`. Do not create a feature branch or pull request unless the owner changes that instruction. **Do not push after every small implementation slice.** Keep in-progress work together and push only when a substantial, reviewable amount of the codebase is ready or an entire stage/milestone is complete. Prefer one milestone push over a stream of small commits.
 
-For each meaningful implementation slice:
+The milestone push is the Windows validation checkpoint:
 
-1. Inspect the relevant implementation, tests, recent history and existing architectural boundaries before editing.
-2. Implement one cohesive, reviewable slice. Avoid unrelated refactors and avoid combining speculative features.
-3. Add or update unit, integration and end-to-end tests appropriate to the user-visible behaviour. For media/render changes, prefer generated deterministic fixtures and decode/check the resulting MP4 rather than relying only on helper-level assertions.
-4. Run the available local formatting, lint and test checks. Then commit directly to `main` and let the Windows GitHub Actions workflow validate that exact commit.
-5. Inspect the exact workflow run, including individual jobs and steps. A test step passing is not equivalent to the whole workflow passing. Check release compilation, runtime staging, portable ZIP, installer creation and artifact upload where those steps apply.
-6. If a test or workflow step fails, inspect its logs, identify the actual cause, make a focused correction and rerun the workflow. Do not hide, bypass, weaken or relabel a failing test to make CI green.
-7. Update `README.md`, this roadmap and `docs/DEVELOPMENT_STATUS.md` whenever implementation status, priorities, limitations or verified capabilities change. Record exact commit hashes and workflow-run links, with the limits of each verification result.
-8. Report completion only after the exact workflow run for the relevant commit concludes successfully. Clearly distinguish local test results, CI test-step results, full Windows packaging results, and physical Windows/hardware acceptance. Never imply that CI proves hardware behaviour or clean-machine interactive acceptance.
+1. Inspect the current `main` head, recent history, relevant source/tests and current workflow state before editing.
+2. Implement a cohesive milestone. Add or update unit, integration and end-to-end tests appropriate to the behaviour. For media/render work, prefer deterministic fixtures and decode/check the resulting MP4.
+3. Before pushing, run all available local formatting, lint and test checks. Review the complete diff and update affected documentation in the same batch.
+4. Push the milestone as one logical commit batch. Do not push every internal fix or intermediate documentation adjustment separately.
+5. Wait for the complete Windows CI run for that pushed state. Inspect all failed steps and collect the full set of failures before starting corrections. Do not rerun CI after each individual failure.
+6. Fix all identified root causes together in the working tree, run local checks again, and push one consolidated corrective batch. Use another CI run to verify that batch. Never hide, bypass, weaken or relabel a failing test to make CI green.
+7. Rerun an unchanged workflow only when a transient GitHub runner or infrastructure failure is confirmed. Do not use retries as a substitute for collecting and fixing code failures.
+8. Report success only after the exact run for the final relevant commit completes successfully. Distinguish local tests, CI test/build checks, package creation and physical Windows/hardware acceptance.
+
+**CI cost and artifact policy:**
+
+- The Windows workflow runs tests and a release build for code pushes and pull requests. Documentation-only changes are ignored by push/PR triggers.
+- A newer run for the same branch or pull request cancels an obsolete in-progress run.
+- Portable ZIP and installer packaging are not part of ordinary push/PR validation. They run only when the owner manually dispatches the workflow with `package_windows=true`.
+- Package artifacts are retained for **3 days**, not 14. Do not upload packages for intermediate development commits or routine test runs.
+- Keep only the newest useful, fully validated Windows package. Delete superseded or failed-run artifacts from the repository's Actions artifact storage. Source code and durable documentation belong in Git; build packages do not.
+- The workflow's 3-day setting applies to new artifacts only. Existing artifacts created under the previous 14-day policy must be manually deleted or allowed to expire; changing the workflow does not retroactively shorten their retention.
 
 If required repository write access, a Rust execution environment, a Windows workflow, or workflow logs are unavailable, do not make uncompiled speculative implementation commits or claim verification. State the specific blocker and what could and could not be checked. Continue with independently verifiable work only where it does not undermine these rules.
 
