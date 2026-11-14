@@ -1555,16 +1555,18 @@ mod tests {
         let mut state = state_with_media();
         let song_index = state.pool.iter().position(|entry| entry.kind == MediaKind::Audio).unwrap();
         assert!(state.set_song(song_index));
-        let video_asset_id = state.pool[state.video_indices()[0]].asset_id;
+        let video_index = state.video_indices()[0];
+        state.set_trims_seconds(video_index, 1.0, 1.0);
+        let video_asset_id = state.pool[video_index].asset_id;
 
         let mut manual = ricodex_core::Item::new(
-            10, video_asset_id, Tick::ZERO, Tick::from_seconds(4.0), Tick::ZERO,
+            10, video_asset_id, Tick::ZERO, Tick::from_seconds(4.0), Tick::from_seconds(1.0),
         );
         manual.provenance = ItemProvenance::Manual;
         manual.pinned = true;
         let generated = ricodex_core::Item::new(
             11, video_asset_id, Tick::from_seconds(4.0),
-            Tick::from_seconds(4.0), Tick::from_seconds(4.0),
+            Tick::from_seconds(4.0), Tick::from_seconds(5.0),
         );
         state.project.items_mut(VIDEO_TRACK_ID).unwrap().extend([manual, generated]);
         state.history = History::new(state.project.clone());
@@ -1584,8 +1586,10 @@ mod tests {
         assert_eq!(initial.clips.len(), 2);
         assert_eq!(initial.clips[0].item_id, 10);
         assert_eq!(initial.clips[0].state, ClipState::Settled);
+        assert_eq!(initial.clips[0].source_in, Tick::ZERO);
         assert_eq!(initial.clips[1].item_id, 11);
         assert_eq!(initial.clips[1].state, ClipState::Provisional);
+        assert_eq!(initial.clips[1].source_in, Tick::from_seconds(4.0));
     }
 
     #[test]
@@ -1597,6 +1601,7 @@ mod tests {
         );
         manual.provenance = ItemProvenance::Manual;
         manual.pinned = true;
+        manual.enabled = false;
         state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(manual);
         state.history = History::new(state.project.clone());
 
@@ -1621,6 +1626,7 @@ mod tests {
         let installed = state.project.item(10).unwrap();
         assert_eq!(installed.provenance, ItemProvenance::Manual);
         assert!(installed.pinned);
+        assert!(!installed.enabled);
         assert!(state.is_pinned(10));
         assert!(state.has_manual_edits);
     }
