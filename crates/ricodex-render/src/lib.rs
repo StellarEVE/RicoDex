@@ -39,7 +39,7 @@ pub mod transition;
 pub mod timeline;
 
 pub use cache::{RenderCache, TransitionUnitKey};
-pub use composite::composite_cpu;
+pub use composite::{composite_cpu, composite_video_layers};
 pub use effects::{apply_effects, describe_stack, EffectOp};
 pub use error::RenderError;
 pub use frame::Frame;
