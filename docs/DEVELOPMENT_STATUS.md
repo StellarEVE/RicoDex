@@ -3,8 +3,8 @@
 **Status date:** 14 November 2026  
 **Repository:** https://github.com/StellarEVE/HyperDex  
 **Working branch:** `main`  
-**Current code head before this verification-document update:** `b54834bfbc0c70e63785ab8ff0e56650cbaba2da`
-**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/HyperDex/actions/runs/43560350393). Transition mapping passed in run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742), full-timeline transition export in run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966), Edit-page transition controls in run [#92](https://github.com/StellarEVE/HyperDex/actions/runs/43566269122), Core audio-track validation in run [#93](https://github.com/StellarEVE/HyperDex/actions/runs/43567127799), audio placement in run [#94](https://github.com/StellarEVE/HyperDex/actions/runs/43567806957), and the audio mixer/app-export integration in run [#95](https://github.com/StellarEVE/HyperDex/actions/runs/43568365543). The HyperDex crate/package rename is committed in `9b7589f`, but Windows CI run [#96](https://github.com/StellarEVE/HyperDex/actions/runs/43569885027) and follow-up run [#97](https://github.com/StellarEVE/HyperDex/actions/runs/43570254373) both failed before recording any job steps; their log endpoints returned no content. These results do not establish a source compilation failure. A successful Windows workflow on the renamed tree is still required.
+**Current repository head before this status update:** `5d32f4044d8320bbdb9d9d33e19c5fb41b303577`
+**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/HyperDex/actions/runs/43560350393). Transition mapping passed the complete Windows workflow in run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742), full-timeline transition export in run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966), Edit-page transition controls in run [#92](https://github.com/StellarEVE/HyperDex/actions/runs/43566269122), Core audio-track validation in run [#93](https://github.com/StellarEVE/HyperDex/actions/runs/43567127799), audio placement in run [#94](https://github.com/StellarEVE/HyperDex/actions/runs/43567806957), and the renderer-side stereo audio mixer in run [#95](https://github.com/StellarEVE/HyperDex/actions/runs/43568365543). Runs [#96](https://github.com/StellarEVE/HyperDex/actions/runs/43569885027) through [#99](https://github.com/StellarEVE/HyperDex/actions/runs/43581620901), including the retry of #99, failed before any workflow step ran. The latest job records report runner ID `0`, no runner name, no steps and no downloadable logs. These are pre-runner workflow failures and do not establish a source compilation failure. The renamed repository is `StellarEVE/HyperDex`.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
@@ -69,18 +69,18 @@ The transition work is split into two distinct parts:
 
 **Edit-page audio controls:** the UI supports audio track creation, append of a probed audio asset, mute/unmute and non-ripple removal. The AppState placement helpers validate the target track and audio asset, derive source range from trims, append after the last clip and use Core command history. Tests cover sequential items, source/timeline coordinates, undo, invalid types and probe readiness. This slice passed Windows CI run #94.
 
-**Edit-page transition controls:** the inspector now allows selecting one of the supported transition kinds, changing its duration and clearing it. It applies `Command::SetItemTransition`, so Core validation, manual/pin provenance and History remain authoritative. AppState tests cover set, change, clear, undo and redo. This UI slice awaits Windows CI run #92.
+**Edit-page transition controls:** the inspector allows selecting a supported transition kind, changing its duration and clearing it through `Command::SetItemTransition`; Core validation, manual/pin provenance and History remain authoritative. AppState tests cover set, change, clear, undo and redo. The complete Windows workflow passed in run #92.
 
-**Remaining transition verification:** exporter MP4 integration tests passed in Windows run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966). Mapping run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742) also passed the full pipeline. The independent two-clip `render_project` path remains a separate narrower renderer.
+**Transition verification:** exporter MP4 integration tests passed in Windows run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966). Mapping run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742) also passed the full pipeline. Edit-page controls passed run #92. The independent two-clip `render_project` path remains a separate narrower renderer.
 
 ## 4. Explicitly incomplete
 
 The following remain planned or incomplete. Do not describe them as supported end-to-end:
 
 - Preview playback driven by the same timeline schedule and renderer as export.
-- Audio-item placement is exposed in Edit. The app export worker decodes unique assets from visible, unmuted tracks and the renderer mixes their stereo PCM with the selected-song bed into AAC. Placed clips follow the compressed video timeline while the song remains on output time. The end-to-end path passed Windows CI run #95.
+- Audio-item placement is exposed in Edit. The renderer accepts decoded stereo PCM for placed Audio-track items and mixes it with the selected-song bed. Placed clips follow the compressed video timeline while the song remains on output time. However, the current desktop worker calls `render_timeline_with_audio` rather than `render_timeline_with_audio_items`, so the app does not yet supply placed audio assets. Run #95 verifies the renderer-side mixer, not end-to-end desktop audio-track export.
 - Audio captured from source video clips.
-- Mixing of multiple audio sources, per-clip/per-track gain, fades and loudness normalization.
+- App-level mixing of placed audio-track items; per-item/track gain, fades, loudness normalization and a dedicated limiter.
 - Per-clip and track-level full-timeline effects.
 - Shared preview/export cache keys and complete cache invalidation.
 - Atomic temporary-file finalization for exports.
@@ -88,14 +88,15 @@ The following remain planned or incomplete. Do not describe them as supported en
 - Physical Windows acceptance on clean machines and a representative hardware matrix.
 - FFmpeg and transitive-library licensing review before public binary redistribution.
 
-The HyperDex Edit UI has a video clip editor plus a separate audio-track placement list. Audio items can be appended, muted and removed, but freeform audio drag placement and audible audio-track mixing are not yet implemented.
+The HyperDex Edit UI has a video clip editor plus a separate audio-track placement list. Audio items can be appended, muted and removed, but freeform audio drag placement is not implemented. Although the renderer can mix audio-track items, the current app export worker does not call that renderer entry point, so placed audio is not yet audible in desktop MP4 exports.
 
 ## 5. Verification and release status
 
 - Multi-track exporter: verified by Windows CI run #81, including workspace tests and packaging.
+- Renderer-side stereo audio-item mixer: verified by Windows CI run #95, including workspace tests, release build and Windows packaging. App export wiring for placed items remains incomplete.
 - Schema-4 transition model: passed the complete Windows CI pipeline in run #85.
-- Full-timeline transition export: MP4 integration tests are committed; Windows run #91 workspace tests passed and release compilation was running at the latest check.
-- Edit-page transition controls: Core command integration and AppState tests are committed; Windows run #92 is the verification gate.
+- Full-timeline transition export: MP4 integration tests and the complete Windows workflow passed in run #91.
+- Edit-page transition controls: Core command integration and AppState tests passed the complete Windows workflow in run #92.
 - Previous CI runs #83 and #84 failed during the first transition-model test pass. Run #83 exposed a stale test type name; run #84 exposed validation error-ordering in the transition-limit test. The stale test type was corrected, and commit `67ae474` moves transition-region aggregate validation after individual transition validation. The complete validation workflow passed in run #85.
 - Windows CI builds and packages the application, but it does not establish clean-machine interactive acceptance or hardware performance.
 - The Windows smoke-test checklist is `docs/WINDOWS_SMOKE_TEST.md`.
@@ -103,10 +104,10 @@ The HyperDex Edit UI has a video clip editor plus a separate audio-track placeme
 
 ## 6. Recommended next implementation sequence
 
-1. Obtain one successful full Windows CI run for the renamed HyperDex workspace. Runs #96 and #97 failed before job steps started, with no downloadable logs, so the rename remains unverified by CI.
-2. Continue with source-video audio, per-item/track gain, fades, normalization and a dedicated limiter; add MP4 decode tests for each audio feature.
-3. Implement preview/export parity using the same timeline schedule, transition map, video stack and audio mixer.
-3. Continue with source-video audio, gain/fades and normalization only after placed-audio mixing is end-to-end verified.
+1. Restore a successful Windows runner execution for the current `main` head. Runs #96–#99 failed before workflow steps started; the latest records show runner ID `0` and no logs, so there is no source failure to correct from those runs.
+2. Complete the missing desktop export wiring for the existing audio-item mixer: decode each unique asset referenced by visible, unmuted Audio tracks, pass `StereoAudioAssetInput` values to `render_timeline_with_audio_items`, and add app-level MP4 decode tests for song-plus-placed-audio and placed-audio-only exports.
+3. Add source-video audio, then per-item/track gain, fades, normalization and a dedicated limiter, with decoded-MP4 tests.
+4. Implement preview/export parity using the same timeline schedule, transition map, video stack and audio mixer.
 
 Avoid beginning preview parity or cache redesign until the timeline transition interpretation is stable. Do not introduce simultaneous transition overlaps across different video tracks without an explicit compositing and timeline-mapping design.
 
