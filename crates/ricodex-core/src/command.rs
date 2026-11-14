@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Item, ItemId, ModelError, Project, TrackId};
+use crate::model::{Item, ItemId, ItemProvenance, ModelError, Project, TrackId};
 use crate::time::Tick;
 
 /// One user edit, expressed as data so every front end (app, CLI, and any
@@ -54,6 +54,8 @@ pub enum Command {
         new_duration: Option<Tick>,
     },
     SetItemEnabled { item_id: ItemId, enabled: bool },
+    /// Pin or unpin a clip without changing its generated/manual origin.
+    SetItemPinned { item_id: ItemId, pinned: bool },
     SetTrackMuted { track_id: TrackId, muted: bool },
     SetTrackLocked { track_id: TrackId, locked: bool },
 }
@@ -89,6 +91,11 @@ impl std::fmt::Display for CommandError {
 }
 
 impl std::error::Error for CommandError {}
+
+fn mark_manual(item: &mut Item) {
+    item.provenance = ItemProvenance::Manual;
+    item.pinned = true;
+}
 
 impl Project {
     /// Apply one command with clone, apply, validate, commit semantics.
@@ -201,6 +208,8 @@ impl Project {
                     .position(|item| item.id == *item_id)
                     .expect("item found above");
                 items[position].duration = left_duration;
+                mark_manual(&mut items[position]);
+                mark_manual(&mut right);
                 items.insert(position + 1, right);
                 Ok(())
             }
@@ -243,6 +252,7 @@ impl Project {
 
                 let mut cursor = origin;
                 for entry in items.iter_mut() {
+                    mark_manual(entry);
                     entry.start = cursor;
                     cursor = cursor + entry.duration;
                 }
@@ -273,6 +283,7 @@ impl Project {
                     .expect("item found above");
                 let mut item = items.remove(position);
                 item.start = *new_start;
+                mark_manual(&mut item);
                 let items = self.items_mut(target_track).expect("track found above");
                 let position = items
                     .iter()
@@ -307,6 +318,7 @@ impl Project {
                 if let Some(v) = new_duration {
                     item.duration = *v;
                 }
+                mark_manual(item);
                 // A start change can disturb sorting; restore it here, and
                 // let validation judge overlaps and durations.
                 items.sort_by_key(|i| i.start);
@@ -337,6 +349,7 @@ impl Project {
                 if new_duration.is_some() {
                     items[position].duration = next_duration;
                 }
+                mark_manual(&mut items[position]);
                 for item in items.iter_mut().skip(position + 1) {
                     item.start = item.start + delta;
                 }
@@ -352,6 +365,19 @@ impl Project {
                     .find(|i| i.id == *item_id)
                     .expect("item found above");
                 item.enabled = *enabled;
+                mark_manual(item);
+                Ok(())
+            }
+            Command::SetItemPinned { item_id, pinned } => {
+                let track_id = self
+                    .find_item_track(*item_id)
+                    .ok_or(CommandError::UnknownItem { item_id: *item_id })?;
+                let items = self.items_mut(track_id).expect("track found above");
+                let item = items
+                    .iter_mut()
+                    .find(|item| item.id == *item_id)
+                    .expect("item found above");
+                item.pinned = *pinned;
                 Ok(())
             }
             Command::SetTrackMuted { track_id, muted } => {

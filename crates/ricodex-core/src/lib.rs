@@ -17,8 +17,8 @@ pub mod time;
 pub use command::{Command, CommandError};
 pub use history::History;
 pub use model::{
-    Asset, AssetId, AssetKind, Fingerprint, Item, ItemId, ModelError, Project, Track, TrackId,
-    TrackItems, TrackKind, SCHEMA_VERSION,
+    Asset, AssetId, AssetKind, Fingerprint, Item, ItemId, ItemProvenance, ModelError, Project,
+    Track, TrackId, TrackItems, TrackKind, SCHEMA_VERSION,
 };
 pub use persistence::{backup_path, PersistenceError};
 pub use settings::{ExportSettings, GenerationSettings};

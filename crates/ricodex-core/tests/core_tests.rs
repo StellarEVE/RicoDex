@@ -1,6 +1,6 @@
 use ricodex_core::{
-    Asset, AssetKind, Command, Fingerprint, History, Item, ModelError, Project, Tick, Track,
-    TrackKind, TICKS_PER_SECOND,
+    Asset, AssetKind, Command, Fingerprint, History, Item, ItemProvenance, ModelError, Project,
+    Tick, Track, TrackKind, TICKS_PER_SECOND,
 };
 
 fn sample_asset(id: u64) -> Asset {
@@ -398,8 +398,11 @@ fn schema_one_projects_migrate_source_metadata_and_single_song() {
     }
 
     let migrated = Project::from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
-    assert_eq!(migrated.schema_version, 2);
+    assert_eq!(migrated.schema_version, 3);
     assert_eq!(migrated.song_asset_id, Some(3));
+    assert!(migrated.track_items.iter().flat_map(|group| &group.items).all(|item| {
+        item.provenance == ItemProvenance::Manual && item.pinned
+    }));
     assert!(migrated.assets.iter().all(|asset| {
         asset.intro_trim == Tick::ZERO && asset.outro_trim == Tick::ZERO
     }));
@@ -424,7 +427,7 @@ fn song_selection_and_source_trims_round_trip() {
 #[test]
 fn newer_schema_gets_a_clear_error() {
     let mut text = sample_project().to_json().unwrap();
-    text = text.replace("\"schema_version\": 2", "\"schema_version\": 99");
+    text = text.replace("\"schema_version\": 3", "\"schema_version\": 99");
     match Project::from_json(&text) {
         Err(ricodex_core::PersistenceError::NewerSchema { found: 99, .. }) => {}
         other => panic!("expected newer schema error, got {other:?}"),

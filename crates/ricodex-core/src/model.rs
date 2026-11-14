@@ -10,7 +10,7 @@ use crate::settings::{ExportSettings, GenerationSettings};
 use crate::time::Tick;
 
 /// The project file schema version written by this build.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 pub type AssetId = u64;
 pub type TrackId = u64;
@@ -97,6 +97,20 @@ impl Track {
     }
 }
 
+/// Records whether a clip came from the planner or was directly edited by the user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ItemProvenance {
+    Generated,
+    Manual,
+}
+
+impl Default for ItemProvenance {
+    fn default() -> Self {
+        // Missing provenance in old project files is ambiguous. Default safely.
+        Self::Manual
+    }
+}
+
 /// One placed clip: a range of a source asset placed on a track.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Item {
@@ -109,6 +123,13 @@ pub struct Item {
     /// Where in the source asset this clip begins.
     pub source_in: Tick,
     pub enabled: bool,
+    /// Generated clips may be reconsidered by the planner. Manual clips are
+    /// retained as user-authored project content.
+    #[serde(default)]
+    pub provenance: ItemProvenance,
+    /// A pinned clip is not replaced during planner refinement.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 impl Item {
@@ -120,6 +141,8 @@ impl Item {
             duration,
             source_in,
             enabled: true,
+            provenance: ItemProvenance::Generated,
+            pinned: false,
         }
     }
 
