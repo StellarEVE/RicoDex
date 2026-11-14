@@ -36,6 +36,7 @@ pub mod frame;
 pub mod gpu;
 pub mod job;
 pub mod transition;
+pub mod timeline;
 
 pub use cache::{RenderCache, TransitionUnitKey};
 pub use composite::composite_cpu;
@@ -48,3 +49,4 @@ pub use job::{
     TransitionSpec,
 };
 pub use transition::{TransitionKind, TransitionParams};
+pub use timeline::{TimelineFrame, TimelineFrameSchedule, TimelineLayer};
