@@ -641,21 +641,52 @@ fn sequential_export_renders_a_three_clip_timeline() {
 }
 
 #[test]
-fn sequential_export_rejects_a_gap() {
+fn sequential_export_renders_timeline_gaps_as_black_frames() {
     let dir = test_dir("sequential-gap");
     let (a, b) = make_clips(&dir);
     let mut project = two_clip_project(&a, &b);
-    // Move the second clip one second later, opening a gap.
-    let items = project.items_mut(1).unwrap();
-    items[1].start = Tick::from_seconds(3.0);
+    // Leave a one-second gap between two two-second clips.
+    project.items_mut(1).unwrap()[1].start = Tick::from_seconds(3.0);
 
     let output = dir.join("gap.mp4");
-    let error = ricodex_render::render_sequential(&project, 1, &output, &mut |_| {}).unwrap_err();
+    let outcome = ricodex_render::render_sequential(&project, 1, &output, &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 50);
+    assert_eq!(outcome.duration, Tick::from_seconds(5.0));
+
+    let frames = decode_all(&output);
+    assert!((48..=52).contains(&frames.len()), "decoded {} frames", frames.len());
+    let (_, pixels, width, height) = &frames[25];
+    let gap_frame = Frame::from_rgb24(*width, *height, pixels).unwrap();
+    let black = Frame::solid(*width, *height, [0, 0, 0, 255]);
     assert!(
-        error.to_string().contains("back to back"),
-        "unexpected error: {error}"
+        mean_abs_diff(&gap_frame, &black) < 8.0,
+        "the middle gap should be black, mean difference {}",
+        mean_abs_diff(&gap_frame, &black)
     );
-    assert!(!output.exists(), "a rejected export writes no file");
+}
+
+#[test]
+fn sequential_export_preserves_disabled_clip_as_black_gap() {
+    let dir = test_dir("sequential-disabled-gap");
+    let (a, b) = make_clips(&dir);
+    let mut project = three_clip_project(&a, &b);
+    project.items_mut(1).unwrap()[1].enabled = false;
+
+    let output = dir.join("disabled-gap.mp4");
+    let outcome = ricodex_render::render_sequential(&project, 1, &output, &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 30);
+    assert_eq!(outcome.duration, Tick::from_seconds(3.0));
+
+    let frames = decode_all(&output);
+    assert!((28..=32).contains(&frames.len()), "decoded {} frames", frames.len());
+    let (_, pixels, width, height) = &frames[15];
+    let gap_frame = Frame::from_rgb24(*width, *height, pixels).unwrap();
+    let black = Frame::solid(*width, *height, [0, 0, 0, 255]);
+    assert!(
+        mean_abs_diff(&gap_frame, &black) < 8.0,
+        "disabled clip interval should be black, mean difference {}",
+        mean_abs_diff(&gap_frame, &black)
+    );
 }
 
 
