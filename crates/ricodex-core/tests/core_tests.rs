@@ -1,6 +1,6 @@
 use ricodex_core::{
-    Asset, AssetKind, Command, Fingerprint, History, Item, ItemProvenance, ModelError, Project,
-    Tick, Track, TrackKind, TICKS_PER_SECOND,
+    Asset, AssetKind, ClipTransition, Command, Fingerprint, History, Item, ItemProvenance,
+    ModelError, Project, Tick, Track, TrackKind, TransitionKind, TransitionParams, TICKS_PER_SECOND,
 };
 
 fn sample_asset(id: u64) -> Asset {
@@ -398,7 +398,7 @@ fn schema_one_projects_migrate_source_metadata_and_single_song() {
     }
 
     let migrated = Project::from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
-    assert_eq!(migrated.schema_version, 3);
+    assert_eq!(migrated.schema_version, 4);
     assert_eq!(migrated.song_asset_id, Some(3));
     assert!(migrated.track_items.iter().flat_map(|group| &group.items).all(|item| {
         item.provenance == ItemProvenance::Manual && item.pinned
@@ -422,10 +422,117 @@ fn schema_two_projects_migrate_clips_as_manual_and_pinned() {
     }
 
     let migrated = Project::from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
-    assert_eq!(migrated.schema_version, 3);
+    assert_eq!(migrated.schema_version, 4);
     assert!(migrated.track_items.iter().flat_map(|group| &group.items).all(|item| {
         item.provenance == ItemProvenance::Manual && item.pinned
     }));
+}
+
+
+
+#[test]
+fn schema_three_projects_migrate_without_losing_provenance_or_pins() {
+    let project = sample_project()
+        .apply(&Command::MarkItemManual { item_id: 100 })
+        .map_err(|(_, error)| error)
+        .unwrap();
+    let mut legacy: serde_json::Value = serde_json::from_str(&project.to_json().unwrap()).unwrap();
+    legacy["schema_version"] = serde_json::Value::from(3);
+    for group in legacy["track_items"].as_array_mut().unwrap() {
+        for item in group["items"].as_array_mut().unwrap() {
+            item.as_object_mut().unwrap().remove("transition_in");
+        }
+    }
+    let migrated = Project::from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
+    assert_eq!(migrated.schema_version, 4);
+    assert_eq!(migrated.item(100).unwrap().provenance, ItemProvenance::Manual);
+    assert!(migrated.item(100).unwrap().pinned);
+    assert!(migrated.item(101).unwrap().transition_in.is_none());
+}
+
+#[test]
+fn item_transition_round_trips_and_is_undoable() {
+    let transition = ClipTransition {
+        kind: TransitionKind::CrossDissolve,
+        params: TransitionParams::default(),
+        duration: Tick::from_seconds(0.5),
+    };
+    let mut history = History::new(sample_project());
+    history.apply(&Command::SetItemTransition {
+        item_id: 101,
+        transition: Some(transition),
+    }).unwrap();
+    assert_eq!(history.project().item(101).unwrap().transition_in, Some(transition));
+
+    let saved = history.project().to_json().unwrap();
+    let loaded = Project::from_json(&saved).unwrap();
+    assert_eq!(loaded.item(101).unwrap().transition_in, Some(transition));
+
+    assert!(history.undo());
+    assert!(history.project().item(101).unwrap().transition_in.is_none());
+    assert!(history.redo());
+    assert_eq!(history.project().item(101).unwrap().transition_in, Some(transition));
+}
+
+#[test]
+fn transition_requires_adjacent_video_items_and_valid_duration() {
+    let transition = ClipTransition {
+        kind: TransitionKind::CrossDissolve,
+        params: TransitionParams::default(),
+        duration: Tick::from_seconds(0.5),
+    };
+    let mut project = sample_project();
+    project.items_mut(10).unwrap()[1].transition_in = Some(transition);
+    assert!(project.validate().is_ok());
+
+    let mut not_adjacent = project.clone();
+    not_adjacent.items_mut(10).unwrap()[1].start = Tick::from_seconds(2.25);
+    assert!(matches!(
+        not_adjacent.validate(),
+        Err(ModelError::TransitionItemsNotAdjacent { item_id: 101, .. })
+    ));
+
+    let mut too_long = project.clone();
+    too_long.items_mut(10).unwrap()[1].transition_in = Some(ClipTransition {
+        duration: Tick::from_seconds(2.0),
+        ..transition
+    });
+    assert_eq!(
+        too_long.validate(),
+        Err(ModelError::InvalidTransitionDuration { item_id: 101 })
+    );
+
+    let mut first_item = project.clone();
+    first_item.items_mut(10).unwrap()[0].transition_in = Some(transition);
+    assert_eq!(
+        first_item.validate(),
+        Err(ModelError::TransitionWithoutPreviousItem { item_id: 100 })
+    );
+}
+
+#[test]
+fn transitions_at_both_ends_cannot_consume_an_entire_clip() {
+    let mut project = sample_project();
+    project.items_mut(10).unwrap()[0].duration = Tick::from_seconds(2.0);
+    project.items_mut(10).unwrap()[1].start = Tick::from_seconds(2.0);
+    project.items_mut(10).unwrap()[1].duration = Tick::from_seconds(3.0);
+    project.items_mut(10).unwrap()[1].transition_in = Some(ClipTransition {
+        kind: TransitionKind::CrossDissolve,
+        params: TransitionParams::default(),
+        duration: Tick::from_seconds(1.5),
+    });
+    project.items_mut(10).unwrap().push(Item::new(
+        102, 1, Tick::from_seconds(5.0), Tick::from_seconds(2.0), Tick::from_seconds(10.0),
+    ));
+    project.items_mut(10).unwrap()[2].transition_in = Some(ClipTransition {
+        kind: TransitionKind::CrossDissolve,
+        params: TransitionParams::default(),
+        duration: Tick::from_seconds(1.5),
+    });
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::TransitionRegionsConsumeItem { item_id: 101 })
+    );
 }
 
 #[test]
@@ -468,7 +575,7 @@ fn song_selection_and_source_trims_round_trip() {
 #[test]
 fn newer_schema_gets_a_clear_error() {
     let mut text = sample_project().to_json().unwrap();
-    text = text.replace("\"schema_version\": 3", "\"schema_version\": 99");
+    text = text.replace("\"schema_version\": 4", "\"schema_version\": 99");
     match Project::from_json(&text) {
         Err(ricodex_core::PersistenceError::NewerSchema { found: 99, .. }) => {}
         other => panic!("expected newer schema error, got {other:?}"),

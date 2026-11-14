@@ -98,13 +98,22 @@ impl Project {
             }
         }
 
-        // Schema 1 and 2 did not record clip provenance or pin state.
-        // Protect all existing clips rather than risk replacing old user edits.
-        if peek.schema_version < SCHEMA_VERSION {
+        // Schemas 1 and 2 did not record clip provenance or pin state.
+        // Schema 3 did, so preserve those values when adding schema-4 transitions.
+        if peek.schema_version < 3 {
             for group in &mut project.track_items {
                 for item in &mut group.items {
                     item.provenance = crate::model::ItemProvenance::Manual;
                     item.pinned = true;
+                }
+            }
+        }
+        // Schema 4 adds an optional incoming transition to each item. Older
+        // projects deserialize that field as None through its serde default.
+        if peek.schema_version < SCHEMA_VERSION {
+            for group in &mut project.track_items {
+                for item in &mut group.items {
+                    item.transition_in = None;
                 }
             }
             project.schema_version = SCHEMA_VERSION;

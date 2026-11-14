@@ -10,7 +10,7 @@ use crate::settings::{ExportSettings, GenerationSettings};
 use crate::time::Tick;
 
 /// The project file schema version written by this build.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 pub type AssetId = u64;
 pub type TrackId = u64;
@@ -74,6 +74,90 @@ pub enum TrackKind {
 
 /// One timeline track. Items live on the project, grouped by track id, so
 /// track order here is the stacking and playback order.
+
+/// One named transition form supported by the CPU reference compositor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TransitionKind {
+    CrossDissolve,
+    DipToColor,
+    FilmDissolve,
+    DipToDissolve,
+    CrashZoom,
+    DirectionalZoom,
+    TwistWheel,
+    RadialTwist,
+    Push,
+    Slide,
+    Split,
+}
+
+impl TransitionKind {
+    /// Stable name used in cache keys and diagnostics.
+    pub fn name(&self) -> &'static str {
+        match self {
+            TransitionKind::CrossDissolve => "cross-dissolve",
+            TransitionKind::DipToColor => "dip-to-color",
+            TransitionKind::FilmDissolve => "film-dissolve",
+            TransitionKind::DipToDissolve => "dip-to-dissolve",
+            TransitionKind::CrashZoom => "crash-zoom",
+            TransitionKind::DirectionalZoom => "directional-zoom",
+            TransitionKind::TwistWheel => "twist-wheel",
+            TransitionKind::RadialTwist => "radial-twist",
+            TransitionKind::Push => "push",
+            TransitionKind::Slide => "slide",
+            TransitionKind::Split => "split",
+        }
+    }
+}
+
+/// Parameters shared by the transition forms.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TransitionParams {
+    /// Dip colour as RGB. Black is the classic dip; white gives Dip to White.
+    pub dip_color: [u8; 3],
+    /// Direction of travel in frame space.
+    pub direction: (f32, f32),
+}
+
+impl Default for TransitionParams {
+    fn default() -> Self {
+        Self {
+            dip_color: [0, 0, 0],
+            direction: (1.0, 0.0),
+        }
+    }
+}
+
+impl TransitionParams {
+    pub fn dip_black() -> Self {
+        Self::default()
+    }
+
+    pub fn dip_white() -> Self {
+        Self {
+            dip_color: [255, 255, 255],
+            direction: (1.0, 0.0),
+        }
+    }
+
+    /// Canonical description for deterministic cache keys.
+    pub fn describe(&self) -> String {
+        format!(
+            "dip={:02x}{:02x}{:02x};dir={:.4},{:.4}",
+            self.dip_color[0], self.dip_color[1], self.dip_color[2],
+            self.direction.0, self.direction.1
+        )
+    }
+}
+
+/// A transition attached to the incoming clip at a cut.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ItemTransition {
+    pub kind: TransitionKind,
+    pub params: TransitionParams,
+    pub duration: Tick,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: TrackId,
@@ -136,6 +220,9 @@ pub struct Item {
     /// A pinned clip is not replaced during planner refinement.
     #[serde(default = "default_pinned")]
     pub pinned: bool,
+    /// Optional transition from the previous clip into this clip.
+    #[serde(default)]
+    pub transition_in: Option<ItemTransition>,
 }
 
 impl Item {
@@ -149,6 +236,7 @@ impl Item {
             enabled: true,
             provenance: ItemProvenance::Generated,
             pinned: false,
+            transition_in: None,
         }
     }
 
@@ -339,6 +427,43 @@ impl Project {
                         });
                     }
                 }
+
+                if let Some(transition) = item.transition_in {
+                    let track = self.track(group.track_id).expect("track item group was checked above");
+                    if track.kind != TrackKind::Video {
+                        return Err(ModelError::TransitionOnNonVideoTrack {
+                            item_id: item.id,
+                            track_id: group.track_id,
+                        });
+                    }
+                    if index == 0 {
+                        return Err(ModelError::TransitionWithoutPreviousItem { item_id: item.id });
+                    }
+                    let previous = &items[index - 1];
+                    if previous.end() != item.start {
+                        return Err(ModelError::TransitionItemsNotAdjacent {
+                            item_id: item.id,
+                            previous_item_id: previous.id,
+                        });
+                    }
+                    if transition.duration <= Tick::ZERO
+                        || transition.duration >= previous.duration
+                        || transition.duration >= item.duration
+                    {
+                        return Err(ModelError::InvalidTransitionDuration { item_id: item.id });
+                    }
+                }
+
+                // An item's incoming transition consumes its head; the next
+                // item's incoming transition consumes this item's tail.
+                let transition_at_head = item.transition_in.map(|t| t.duration).unwrap_or(Tick::ZERO);
+                let transition_at_tail = items.get(index + 1)
+                    .and_then(|next| next.transition_in)
+                    .map(|t| t.duration)
+                    .unwrap_or(Tick::ZERO);
+                if transition_at_head + transition_at_tail >= item.duration {
+                    return Err(ModelError::TransitionRegionsConsumeItem { item_id: item.id });
+                }
             }
         }
 
@@ -371,6 +496,11 @@ pub enum ModelError {
     UnknownAsset { item_id: ItemId, asset_id: AssetId },
     ItemsNotSorted { track_id: TrackId },
     ItemsOverlap { track_id: TrackId, first: ItemId, second: ItemId },
+    TransitionOnNonVideoTrack { item_id: ItemId, track_id: TrackId },
+    TransitionWithoutPreviousItem { item_id: ItemId },
+    TransitionItemsNotAdjacent { item_id: ItemId, previous_item_id: ItemId },
+    InvalidTransitionDuration { item_id: ItemId },
+    TransitionRegionsConsumeItem { item_id: ItemId },
 }
 
 impl std::fmt::Display for ModelError {
@@ -405,6 +535,21 @@ impl std::fmt::Display for ModelError {
             }
             ModelError::ItemsOverlap { track_id, first, second } => {
                 write!(f, "items {first} and {second} overlap on track {track_id}")
+            }
+            ModelError::TransitionOnNonVideoTrack { item_id, track_id } => {
+                write!(f, "item {item_id} on track {track_id} has a video transition on a non-video track")
+            }
+            ModelError::TransitionWithoutPreviousItem { item_id } => {
+                write!(f, "item {item_id} has an incoming transition but no previous clip")
+            }
+            ModelError::TransitionItemsNotAdjacent { item_id, previous_item_id } => {
+                write!(f, "transition into item {item_id} requires adjacent previous item {previous_item_id}")
+            }
+            ModelError::InvalidTransitionDuration { item_id } => {
+                write!(f, "transition into item {item_id} must be positive and shorter than both clips")
+            }
+            ModelError::TransitionRegionsConsumeItem { item_id } => {
+                write!(f, "transitions at both ends of item {item_id} consume its full duration")
             }
         }
     }

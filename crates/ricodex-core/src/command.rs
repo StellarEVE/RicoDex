@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Item, ItemId, ItemProvenance, ModelError, Project, TrackId};
+use crate::model::{Item, ItemId, ItemProvenance, ItemTransition, ModelError, Project, TrackId};
 use crate::time::Tick;
 
 /// One user edit, expressed as data so every front end (app, CLI, and any
@@ -56,6 +56,8 @@ pub enum Command {
     SetItemEnabled { item_id: ItemId, enabled: bool },
     /// Pin or unpin a clip without changing its generated/manual origin.
     SetItemPinned { item_id: ItemId, pinned: bool },
+    /// Set or clear the transition from the previous clip into this clip.
+    SetItemTransition { item_id: ItemId, transition: Option<ItemTransition> },
     /// Mark an explicitly inserted clip as user-authored and protect it.
     MarkItemManual { item_id: ItemId },
     SetTrackMuted { track_id: TrackId, muted: bool },
@@ -385,6 +387,22 @@ impl Project {
                     .find(|item| item.id == *item_id)
                     .expect("item found above");
                 item.pinned = *pinned;
+                Ok(())
+            }
+            Command::SetItemTransition { item_id, transition } => {
+                let track_id = self
+                    .find_item_track(*item_id)
+                    .ok_or(CommandError::UnknownItem { item_id: *item_id })?;
+                if self.track(track_id).map(|track| track.locked).unwrap_or(false) {
+                    return Err(CommandError::TrackLocked { track_id });
+                }
+                let items = self.items_mut(track_id).expect("track found above");
+                let item = items
+                    .iter_mut()
+                    .find(|item| item.id == *item_id)
+                    .expect("item found above");
+                item.transition_in = *transition;
+                mark_manual(item);
                 Ok(())
             }
             Command::MarkItemManual { item_id } => {
