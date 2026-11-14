@@ -128,8 +128,8 @@ mod tests {
         let mut project = project_with_timeline();
         // Exercise a long timeline so this checks accumulated rounding across
         // tens of thousands of frames rather than indexing beyond a short clip.
-        project.assets[0].duration = Tick::from_seconds(1_100.0);
-        project.items_mut(1).unwrap()[0].duration = Tick::from_seconds(1_000.0);
+        project.assets[0].duration = Tick::from_seconds(1_200.0);
+        project.items_mut(1).unwrap()[0].duration = Tick::from_seconds(1_100.0);
         let schedule = TimelineFrameSchedule::new(&project, 30_000, 1_001).unwrap();
         let frame = schedule.frame_time(29_999).unwrap();
         let expected = ((29_999i128 * TICKS_PER_SECOND as i128 * 1_001 + 15_000) / 30_000) as i64;
