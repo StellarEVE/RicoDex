@@ -2,7 +2,7 @@
 
 Paste this prompt into a new ChatGPT conversation:
 
-\`\`\`text
+```text
 Continue development of RicoDex from the existing GitHub repository:
 https://github.com/StellarEVE/RicoDex
 
@@ -36,4 +36,4 @@ Next objective:
 Other known gaps: unified preview/export parity, timeline audio items, source-clip audio, gain/fades/normalization, full-timeline clip/track effects, shared cache invalidation, atomic export finalization, true active-render cancellation, physical Windows/hardware acceptance, and FFmpeg/transitive-library licensing review.
 
 Keep scope disciplined. Core owns project data and validation; all timeline arithmetic uses Tick; FFmpeg access stays in ricodex-platform; CPU composition is the correctness oracle; no feature is complete without integration tests and verified Windows CI.
-\`\`\`
+```
