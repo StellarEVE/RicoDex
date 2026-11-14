@@ -19,7 +19,7 @@ use ricodex_core::{
     Asset, AssetKind, Fingerprint, Item, Project, Tick, Track, TrackKind,
 };
 use ricodex_render::{
-    apply_effects, composite_cpu, frame_difference, render_project, render_sequential_with_audio, EffectOp, Frame, StereoAudioInput,
+    apply_effects, composite_cpu, composite_video_layers, frame_difference, render_project, render_sequential_with_audio, EffectOp, Frame, StereoAudioInput,
     GpuCompositor, RenderCache, RenderRequest, TransitionKind, TransitionParams,
     TransitionSpec,
 };
@@ -762,4 +762,29 @@ fn sequential_export_muxes_selected_stereo_song_in_sync_with_video() {
         video_info.duration.to_seconds(),
         exported.duration_seconds()
     );
+}
+
+#[test]
+fn video_layer_compositor_uses_later_tracks_as_the_top_layer() {
+    let bottom = Frame::solid(2, 2, [220, 20, 10, 255]);
+    let top = Frame::solid(2, 2, [10, 30, 230, 255]);
+    let output = composite_video_layers(2, 2, &[bottom, top]).unwrap();
+    assert_eq!(output.pixel(0, 0), [10, 30, 230, 255]);
+}
+
+#[test]
+fn video_layer_compositor_blends_transparency_over_lower_tracks() {
+    let bottom = Frame::solid(1, 1, [200, 0, 0, 255]);
+    let top = Frame::solid(1, 1, [0, 0, 200, 128]);
+    let output = composite_video_layers(1, 1, &[bottom, top]).unwrap();
+    let pixel = output.pixel(0, 0);
+    assert!((pixel[0] as i16 - 100).abs() <= 1, "red channel: {pixel:?}");
+    assert!((pixel[2] as i16 - 100).abs() <= 1, "blue channel: {pixel:?}");
+    assert_eq!(pixel[3], 255);
+}
+
+#[test]
+fn video_layer_compositor_returns_black_when_no_video_layer_is_active() {
+    let output = composite_video_layers(2, 2, &[]).unwrap();
+    assert_eq!(output.pixel(1, 1), [0, 0, 0, 255]);
 }
