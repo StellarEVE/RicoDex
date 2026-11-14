@@ -8,9 +8,9 @@ HyperDex Studio is an early-stage project, not a finished or production-ready ed
 
 ## Current project status
 
-HyperDex Studio has a working local-first analysis, editing, project-persistence and export foundation. The latest fully verified export milestone is transition-aware multi-track video composition: Windows CI run #91 passed workspace tests, release build, runtime dependency staging, portable ZIP creation and Inno Setup packaging. The Edit page also supports transition controls with undo/redo. The audio-track placement and mixer integration are in progress and remain subject to their own Windows CI gates. CI verifies automated behaviour and packaging; it does not replace interactive testing on a real Windows desktop.
+HyperDex Studio has a working local-first analysis, editing, project-persistence and export foundation. The latest verified export milestone includes transition-aware multi-track video composition and stereo mixing of placed audio-track items with the selected-song bed. Windows CI run #95 passed workspace tests, release build and Windows packaging for the audio mixer/app-export integration. The Edit page supports transition controls and audio-track placement with undo/redo. The separate HyperDex rename CI runs #96 and #97 failed before any workflow step started, so the renamed workspace still needs one successful full Windows run. CI does not replace interactive testing on a real Windows desktop.
 
-The current main branch contains the persisted schema-4 transition model, a transition-aware multi-track exporter, and Edit-page transition controls. Core now enforces that Audio tracks contain Audio assets and Video tracks contain Video assets, and track creation is represented by an undoable Core command. The shared integer-Tick map compresses each incoming transition's two source halves into one output interval, maps other visible tracks through the same compressed clock, accumulates sequential transitions and rejects overlapping cross-track regions. Dedicated outgoing/incoming readers feed the CPU transition compositor, and each blended result is layered at the transitioning track's normal position. The Edit inspector lets users choose a transition type, set its duration, and clear it through `Command::SetItemTransition`; edits use Core validation and participate in undo/redo. MP4 integration and UI/state tests have been added. Exporter commit `fd24f40` and the UI controls in the current slice are awaiting their exact Windows CI results.
+The current main branch contains the persisted schema-4 transition model, a transition-aware multi-track exporter, Edit-page transition controls and placed audio-track mixing. Core enforces Audio/Video asset compatibility, and track creation is an undoable Core command. The shared integer-Tick transition map compresses each outgoing/incoming source region into one output interval, maps other tracks through the same clock, accumulates sequential transitions and rejects overlapping cross-track regions. The app export worker decodes each unique audio asset used by visible, unmuted tracks and supplies stereo PCM to the renderer. Placed audio items follow the transition-compressed timeline, while the selected-song bed remains at normal output speed. Run #95 passed the full audio mixer/app-export pipeline. The current outstanding verification is the crate/package rename: CI runs #96 and #97 failed before starting any workflow steps.
 
 The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
 
@@ -31,8 +31,8 @@ The Windows desktop acceptance checklist, broader hardware validation, and FFmpe
 - Drag clips to reorder them.
 - Pin clips and use undo/redo.
 - Set, change and clear incoming transitions using the Edit inspector. Transition type and duration edits use Core commands and support undo/redo.
-- Create audio tracks, append imported audio files as timeline items, mute tracks and remove items. These placements are saved in the project and use Core command history. The renderer can now mix decoded placed audio items into stereo AAC, but the app export worker still needs to decode and supply those assets.
-- Core supports validated, undoable audio-track creation and rejects audio assets on video tracks (and vice versa). Placed audio items are exposed in Edit, but the MP4 exporter does not yet mix those items; only the selected-song bed is currently exported as AAC.
+- Create audio tracks, append imported audio files as timeline items, mute tracks and remove items. These placements are saved through Core command history. The app export worker decodes each unique referenced audio asset, and MP4 export mixes the placed items into stereo AAC alongside the optional selected-song bed.
+- Core supports validated, undoable audio-track creation and rejects audio/video asset mismatches. Placed audio is mixed only from visible, unmuted tracks and enabled items; the selected-song bed remains at normal output speed.
 - Route timeline edits through Core validation, commands, and snapshot history.
 
 The Edit-page reorder workflow compacts the edited track into a contiguous sequence; the underlying multi-track renderer can preserve gaps already present in project data. Source intro/outro trims are validated against each timeline item's source range and become locked once a timeline exists.
@@ -64,9 +64,9 @@ The selected-song integration test checks that the exported MP4 contains decodab
 The following are not yet supported by the app's full sequential export workflow:
 
 - Audio captured from source video clips.
-- Timeline audio tracks or arbitrary audio-item placement.
+- Per-item/track gain, fades, normalization and a dedicated limiter.
 - Per-track or per-clip gain, fades, and loudness normalization.
-- Interactive preview is not yet driven by the same schedule and renderer as export. Transition-aware MP4 export and Edit-page transition controls are implemented in code, with the current Windows CI runs serving as their verification gates.
+- Interactive preview is not yet driven by the same schedule and renderer as export. Source-video audio, gain/fades, normalization, and a dedicated limiter also remain incomplete.
 - Consistent frame scheduling and behaviour between interactive preview and final export.
 - Cancellation during an active encode and atomic temporary-output finalization.
 - Manual clips can be explicitly unpinned to allow planner refinement; older projects migrate conservatively and require deliberate unpinning where regeneration is desired.
