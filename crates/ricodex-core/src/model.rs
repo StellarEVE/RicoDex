@@ -104,6 +104,12 @@ pub enum ItemProvenance {
     Manual,
 }
 
+fn default_pinned() -> bool {
+    // Missing pin state is ambiguous. Prefer preserving a clip to allowing
+    // the planner to replace it unexpectedly.
+    true
+}
+
 impl Default for ItemProvenance {
     fn default() -> Self {
         // Missing provenance in old project files is ambiguous. Default safely.
@@ -128,7 +134,7 @@ pub struct Item {
     #[serde(default)]
     pub provenance: ItemProvenance,
     /// A pinned clip is not replaced during planner refinement.
-    #[serde(default)]
+    #[serde(default = "default_pinned")]
     pub pinned: bool,
 }
 
