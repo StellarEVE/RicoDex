@@ -634,18 +634,6 @@ mod tests {
         assert!(item.pinned);
     }
 
-
-    #[test]
-    fn mark_item_manual_and_pin() {
-        let project = project_with_one_clip()
-            .apply(&Command::MarkItemManual { item_id: 10 })
-            .map_err(|(_, error)| error)
-            .unwrap();
-        let item = project.item(10).unwrap();
-        assert_eq!(item.provenance, ItemProvenance::Manual);
-        assert!(item.pinned);
-    }
-
     #[test]
     fn split_preserves_timeline_and_source_continuity() {
         let split_at = Tick::from_seconds(6.0);
