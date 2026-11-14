@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use egui::{Color32, CornerRadius, RichText, Stroke};
 
-use ricodex_core::{Command, ItemId, Project, Tick};
+use ricodex_core::{Command, ItemId, ItemProvenance, Project, Tick};
 use ricodex_engine::ClipState;
 
 use crate::jobs;
@@ -524,7 +524,7 @@ impl EditorApp {
         ui.horizontal(|ui| {
             ui.heading("Media");
             ui.add_space(12.0);
-            let can_import = !self.state.has_manual_edits && !self.state.pipeline_running();
+            let can_import = !self.state.pipeline_running();
             if ui
                 .add_enabled(can_import, egui::Button::new("Import files"))
                 .clicked()
@@ -553,7 +553,7 @@ impl EditorApp {
         if self.state.has_manual_edits {
             ui.label(
                 RichText::new(
-                    "Media import is paused until timeline edits are undone; the current project model cannot merge new assets into an edited cut yet.",
+                    "Pinned and manually edited clips are saved and protected. Unpin a clip to let the planner reconsider it during analysis.",
                 )
                 .color(SILVER_DIM)
                 .small(),
@@ -712,7 +712,7 @@ impl EditorApp {
             } else if self.state.has_manual_edits {
                 ui.label(
                     RichText::new(
-                        "undo your timeline edits before starting another analysis; current generation cannot merge edited clips yet",
+                        "pinned clips will be preserved; unpinned generated clips may be refined against the current media pool",
                     )
                     .color(SILVER_DIM)
                     .small(),
@@ -925,8 +925,17 @@ impl EditorApp {
                         ui.label(RichText::new("Inspector").strong());
                         ui.add_space(4.0);
                         ui.label(format!("source: {}", self.state.asset_name(clip.asset_id)));
+                        if let Some(item) = self.state.project.item(clip.item_id) {
+                            ui.label(format!(
+                                "origin: {}",
+                                match item.provenance {
+                                    ItemProvenance::Generated => "generated",
+                                    ItemProvenance::Manual => "manually edited",
+                                }
+                            ));
+                        }
                         ui.label(format!(
-                            "state: {}",
+                            "state: {},
                             match clip.state {
                                 ClipState::Provisional => "provisional",
                                 ClipState::Settled => "settled",

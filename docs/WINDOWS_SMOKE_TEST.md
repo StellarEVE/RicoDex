@@ -30,7 +30,9 @@ Run this checklist against the latest portable ZIP or installer from GitHub Acti
 - [ ] Confirm the unsaved-changes indicator clears.
 - [ ] Close and reopen RicoDex, then open the project with Ctrl+O.
 - [ ] Confirm song selection, source trims, timeline order, durations and source-in positions are restored.
-- [ ] Confirm a reopened non-empty timeline is protected from re-analysis and media imports. This is intentional until generated/manual clip provenance is persisted.
+- [ ] Confirm generated/manual provenance and pin states are restored from the project.
+- [ ] Confirm pinned clips remain unchanged during re-analysis, while unpinned generated clips may be refined.
+- [ ] Import another video after reopening, analyze again, and confirm the existing pinned/manual clips remain intact.
 - [ ] Confirm Ctrl+Shift+S opens Save As.
 
 ## Relink moved media

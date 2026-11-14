@@ -21,7 +21,7 @@ The application remains alpha-stage. The Windows desktop acceptance checklist, b
 - Import media from local storage. The app does not require an account or upload source media to a cloud service.
 - Analyze a selected song and source footage through the staged analysis pipeline.
 - Generate a beat-synchronised first cut for timeline refinement.
-- The current generator/editor integration protects pinned and manually edited clips from silent replacement. Re-analysis and adding more media are blocked while manual edits exist because planner/manual-edit provenance is not yet persisted.
+- Clip provenance and pin state are persisted per item. User edits are marked manual and pinned; pin changes are undoable and saved. Existing schema-1/2 timelines migrate conservatively with clips protected as manual/pinned. New media can be imported after reopening, and analysis refines only unpinned provisional/generated slots while carrying pinned clips through the planner.
 
 ### Edit the timeline
 
@@ -42,7 +42,7 @@ The current sequential exporter expects a contiguous cut. Reordering therefore c
 - Rebuild the Media pool when opening a project.
 - Relink moved media only when its content fingerprint matches the saved asset. If the old project has no saved fingerprint, fingerprint enrollment is allowed only from the original stored path.
 
-A reopened non-empty timeline is conservatively treated as user-edited because generated/manual clip provenance is not yet saved. This protects existing edits, but means media imports and regeneration remain blocked for that reopened timeline.
+Schema-1 and schema-2 projects predate persisted provenance. Their existing clips are therefore migrated as manual and pinned to avoid accidental changes. Users can explicitly unpin clips to let the planner reconsider them.
 
 ### Export
 
@@ -63,7 +63,7 @@ The following are not yet supported by the app's full sequential export workflow
 - Timeline gaps and transitions in the sequential app exporter.
 - Consistent frame scheduling and behaviour between interactive preview and final export.
 - Cancellation during an active encode and atomic temporary-output finalization.
-- Persisted provenance that distinguishes generated clips from manual edits.
+- Manual clips can be explicitly unpinned to allow planner refinement; older projects migrate conservatively and require deliberate unpinning where regeneration is desired.
 
 The current Windows desktop workflow has not yet been manually smoke-tested across a clean installation and real hardware. Renderer and encoder behaviour on the supported hardware matrix still needs direct validation.
 

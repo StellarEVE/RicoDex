@@ -165,13 +165,26 @@ pub fn run_pipeline(
 
     // 3. The rough cut.
     let source_list: Vec<SourceInfo> = sources.iter().map(|(_, s)| s.clone()).collect();
-    let mut plan = planner.plan(
-        &grid,
-        &source_list,
-        &request.planner_settings,
-        VIDEO_TRACK_ID,
-        1,
-    );
+    let pins: HashSet<ItemId> = pinned
+        .lock()
+        .map(|set| set.iter().copied().collect())
+        .unwrap_or_default();
+    let mut plan = match request.initial_plan.as_ref() {
+        Some(existing) => planner.refine(
+            existing,
+            &grid,
+            &source_list,
+            &request.planner_settings,
+            &pins,
+        ),
+        None => planner.plan(
+            &grid,
+            &source_list,
+            &request.planner_settings,
+            VIDEO_TRACK_ID,
+            1,
+        ),
+    };
     let _ = tx.send(PipelineMsg::PlanUpdated { plan: plan.clone() });
 
     // 4. Stage 2 per video, refining after each.

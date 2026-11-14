@@ -9,7 +9,7 @@
 //! cut from Stage 1 data, then Stage 2 per video with the plan
 //! refined after each one, pinned clips never replaced.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -17,10 +17,10 @@ use std::time::Instant;
 
 use ricodex_audio::SongAnalysis;
 use ricodex_core::{
-    Asset, AssetId, AssetKind, Command, Fingerprint, History, ItemId, Project, Tick, Track,
-    TrackKind,
+    Asset, AssetId, AssetKind, Command, Fingerprint, History, ItemId, ItemProvenance, Project,
+    Tick, Track, TrackKind,
 };
-use ricodex_engine::{ClipState, Plan, PlannerSettings, SourceInfo};
+use ricodex_engine::{ClipState, Plan, PlannedClip, PlannerSettings, SourceInfo};
 use ricodex_media::{MediaProbe, SourceAnalysis};
 
 /// The one video track the Cut page builds on in this slice.
@@ -279,6 +279,9 @@ pub struct PipelineRequest {
     pub song_path: PathBuf,
     pub videos: Vec<PipelineVideo>,
     pub planner_settings: PlannerSettings,
+    /// Current timeline snapshot used as the starting point for refinement.
+    /// Pinned clips remain fixed; unpinned generated clips may be reconsidered.
+    pub initial_plan: Option<Plan>,
     pub cache_home: PathBuf,
 }
 
@@ -307,9 +310,8 @@ pub struct AppState {
     pub project: Project,
     /// Core command history shared by every editing control.
     pub history: History,
-    /// True after a user edit diverges from the latest generated plan.
-    /// A new analysis is blocked until those edits are undone, avoiding
-    /// silently replacing work that the current planner cannot preserve.
+    /// True when the project contains manually edited or pinned clips.
+    /// These clips are saved and can be protected during later refinement.
     pub has_manual_edits: bool,
     /// Current project file path, when the project has been saved or opened.
     pub project_path: Option<PathBuf>,
@@ -481,7 +483,7 @@ impl AppState {
         self.song_index = self.project.song_asset_id.and_then(|song_id| {
             self.project.assets.iter().position(|asset| asset.id == song_id)
         });
-        self.has_manual_edits = self.project.track_items.iter().any(|group| !group.items.is_empty());
+        self.refresh_clip_flags();
         self.next_asset_id = self
             .project
             .assets
@@ -519,11 +521,7 @@ impl AppState {
             }
         }
 
-        if let Ok(mut pins) = self.pinned.lock() {
-            for item in self.project.track_items.iter().flat_map(|group| group.items.iter()) {
-                pins.insert(item.id);
-            }
-        }
+        self.refresh_clip_flags();
         self.history = History::new(self.project.clone());
         self.page = Page::Media;
         self.probe_job = if probes.is_empty() {
@@ -692,14 +690,39 @@ impl AppState {
     // ---------------------------------------------------------- pinning
 
     pub fn is_pinned(&self, item_id: ItemId) -> bool {
-        self.pinned.lock().map(|set| set.contains(&item_id)).unwrap_or(false)
+        self.project.item(item_id).map(|item| item.pinned).unwrap_or(false)
     }
 
     pub fn toggle_pin(&mut self, item_id: ItemId) {
-        if let Ok(mut set) = self.pinned.lock() {
-            if !set.remove(&item_id) {
-                set.insert(item_id);
+        let Some(item) = self.project.item(item_id) else {
+            return;
+        };
+        let command = Command::SetItemPinned {
+            item_id,
+            pinned: !item.pinned,
+        };
+        if let Err(error) = self.apply_edit(&command) {
+            self.notice = Some(error);
+        }
+    }
+
+    /// Rebuild the shared worker pin set and the UI summary from persisted
+    /// item flags. This is called after loading, edits, undo/redo and
+    /// planner updates so disk state remains authoritative.
+    fn refresh_clip_flags(&mut self) {
+        let mut pinned = HashSet::new();
+        let mut has_manual_edits = false;
+        for item in self.project.track_items.iter().flat_map(|group| group.items.iter()) {
+            if item.pinned {
+                pinned.insert(item.id);
             }
+            if item.pinned || item.provenance == ItemProvenance::Manual {
+                has_manual_edits = true;
+            }
+        }
+        self.has_manual_edits = has_manual_edits;
+        if let Ok(mut shared) = self.pinned.lock() {
+            *shared = pinned;
         }
     }
 
@@ -720,7 +743,6 @@ impl AppState {
         song_ready
             && video_ready
             && !self.pipeline_job.is_running()
-            && !self.has_manual_edits
     }
 
     /// Clone out everything the pipeline worker needs. Also resets
@@ -746,6 +768,42 @@ impl AppState {
                     })
             })
             .collect();
+        let current_items = self
+            .project
+            .items(VIDEO_TRACK_ID)
+            .cloned()
+            .unwrap_or_default();
+        let initial_plan = if current_items.is_empty() {
+            None
+        } else {
+            let clips: Vec<PlannedClip> = current_items
+                .iter()
+                .map(|item| PlannedClip {
+                    item_id: item.id,
+                    asset_id: item.asset_id,
+                    start: item.start,
+                    duration: item.duration,
+                    source_in: item.source_in,
+                    state: if item.pinned {
+                        ClipState::Settled
+                    } else {
+                        ClipState::Provisional
+                    },
+                })
+                .collect();
+            let commands = current_items
+                .iter()
+                .map(|item| Command::InsertItem {
+                    track_id: VIDEO_TRACK_ID,
+                    item: item.clone(),
+                })
+                .collect();
+            Some(Plan {
+                track_id: VIDEO_TRACK_ID,
+                clips,
+                commands,
+            })
+        };
         self.pipeline_videos = videos.iter().map(|v| v.index).collect();
         for index in &self.pipeline_videos {
             if let Some(entry) = self.pool.get_mut(*index) {
@@ -769,6 +827,7 @@ impl AppState {
                 generation: self.project.generation_settings.clone(),
                 ..PlannerSettings::default()
             },
+            initial_plan,
             cache_home,
         })
     }
@@ -1000,17 +1059,32 @@ impl AppState {
             }
         }
 
+        let previous_metadata: HashMap<ItemId, (ItemProvenance, bool)> = self
+            .project
+            .items(VIDEO_TRACK_ID)
+            .into_iter()
+            .flatten()
+            .map(|item| (item.id, (item.provenance, item.pinned)))
+            .collect();
         let mut base = self.project.clone();
         if let Some(items) = base.items_mut(VIDEO_TRACK_ID) {
             items.clear();
         }
         match plan.apply(base) {
-            Ok(project) => {
+            Ok(mut project) => {
+                if let Some(items) = project.items_mut(VIDEO_TRACK_ID) {
+                    for item in items {
+                        if let Some((provenance, pinned)) = previous_metadata.get(&item.id) {
+                            item.provenance = *provenance;
+                            item.pinned = *pinned;
+                        }
+                    }
+                }
                 self.project = project;
+                self.refresh_clip_flags();
                 self.is_dirty = true;
                 // The newest generated plan is the baseline for future edits.
                 self.history = History::new(self.project.clone());
-                self.has_manual_edits = false;
                 self.plan = Some(plan);
                 if let Some(selected) = self.selected_item {
                     if self.project.item(selected).is_none() {
@@ -1063,27 +1137,23 @@ impl AppState {
             return Err("editing is disabled while analysis is running".to_string());
         }
         self.history.apply(command).map_err(|error| error.to_string())?;
+        if let Command::InsertItem { item, .. } = command {
+            // Explicit app-level inserts are user content, not planner output.
+            self.history
+                .apply(&Command::SetItemPinned { item_id: item.id, pinned: true })
+                .map_err(|error| error.to_string())?;
+        }
         self.project = self.history.project().clone();
-        self.has_manual_edits = true;
+        self.refresh_clip_flags();
         self.is_dirty = true;
 
         match command {
-            Command::InsertItem { item, .. } => self.pin_item(item.id),
             Command::RippleRemoveItem { item_id } | Command::RemoveItem { item_id } => {
                 if self.selected_item == Some(*item_id) {
                     self.selected_item = None;
                 }
             }
-            Command::SplitItem { item_id, new_item_id, .. } => {
-                self.pin_item(*item_id);
-                self.pin_item(*new_item_id);
-            }
-            Command::MoveItem { item_id, .. }
-            | Command::ReorderItem { item_id, .. }
-            | Command::TrimItem { item_id, .. }
-            | Command::RippleTrimItem { item_id, .. }
-            | Command::SetItemEnabled { item_id, .. } => self.pin_item(*item_id),
-            Command::SetTrackMuted { .. } | Command::SetTrackLocked { .. } => {}
+            _ => {}
         }
         self.notice = None;
         Ok(())
@@ -1105,7 +1175,7 @@ impl AppState {
         if self.selected_item.map(|id| self.project.item(id).is_none()).unwrap_or(false) {
             self.selected_item = None;
         }
-        self.has_manual_edits = self.history.can_undo();
+        self.refresh_clip_flags();
         self.is_dirty = true;
         true
     }
@@ -1118,7 +1188,7 @@ impl AppState {
         if self.selected_item.map(|id| self.project.item(id).is_none()).unwrap_or(false) {
             self.selected_item = None;
         }
-        self.has_manual_edits = true;
+        self.refresh_clip_flags();
         self.is_dirty = true;
         true
     }
@@ -1164,12 +1234,6 @@ impl AppState {
             .max()
             .unwrap_or(0)
             .checked_add(1)
-    }
-
-    fn pin_item(&mut self, item_id: ItemId) {
-        if let Ok(mut pinned) = self.pinned.lock() {
-            pinned.insert(item_id);
-        }
     }
 
     /// Total timeline length covered by the current clips.
