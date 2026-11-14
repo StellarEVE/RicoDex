@@ -244,12 +244,11 @@ pub fn run_pipeline(
     let _ = tx.send(PipelineMsg::Finished);
 }
 
-/// One export job: the sequential hard cut render of the current
-/// timeline through ricodex-render, reporting progress per frame and
-/// the resolved encoder name at the end. A cancel requested mid
-/// render cannot stop the encoder, so it is honoured by the state
-/// when the finish message lands: the state marks the job
-/// Cancelled and keeps no result.
+/// Export every visible video track in project stacking order through
+/// ricodex-render, reporting progress per frame and the resolved encoder
+/// name at the end. A cancel requested mid render cannot stop the encoder,
+/// so it is honoured by the state when the finish message lands: the state
+/// marks the job Cancelled and keeps no result.
 pub fn run_export(project: Project, output_path: PathBuf, tx: Sender<ExportMsg>) {
     let mut progress = |fraction: f32| {
         let _ = tx.send(ExportMsg::Progress { fraction });
@@ -263,9 +262,8 @@ pub fn run_export(project: Project, output_path: PathBuf, tx: Sender<ExportMsg>)
             Some(asset) if asset.kind == AssetKind::Audio => {
                 let path = PathBuf::from(&asset.path_hint);
                 match ricodex_audio::decode_stereo_file(&path) {
-                    Ok(decoded) => ricodex_render::render_sequential_with_audio(
+                    Ok(decoded) => ricodex_render::render_timeline_with_audio(
                         &project,
-                        VIDEO_TRACK_ID,
                         &output_path,
                         Some(ricodex_render::StereoAudioInput {
                             interleaved_samples: &decoded.samples,
@@ -294,9 +292,8 @@ pub fn run_export(project: Project, output_path: PathBuf, tx: Sender<ExportMsg>)
                 return;
             }
         },
-        None => ricodex_render::render_sequential(
+        None => ricodex_render::render_timeline(
             &project,
-            VIDEO_TRACK_ID,
             &output_path,
             &mut progress,
         ),

@@ -19,10 +19,10 @@
 //! 6. The content addressed render cache ([`RenderCache`]) for
 //!    transition regions, keyed by everything that determines the
 //!    pixels.
-//! 7. The sequential export ([`render_sequential`]): any number of
-//!    enabled items on one track, decoded and encoded back to back
-//!    with hard cuts. This is the export the app drives; the two
-//!    clip transition job stays the narrow, cache backed path.
+//! 7. The sequential export ([`render_timeline`]): enabled items across
+//!    visible video tracks, composited in project stacking order with
+//!    hard cuts and uncovered intervals preserved. The narrow two-clip
+//!    transition job remains a separate cache-backed path.
 //!
 //! All FFmpeg access stays in ricodex-platform; this crate consumes its
 //! plain data frames and its encoder, and never names an FFmpeg
@@ -45,7 +45,7 @@ pub use error::RenderError;
 pub use frame::Frame;
 pub use gpu::{frame_difference, GpuCompositor};
 pub use job::{
-    render_project, render_sequential, render_sequential_with_audio, RenderOutcome, RenderRequest, SequentialOutcome, StereoAudioInput,
+    render_project, render_sequential, render_sequential_with_audio, render_timeline, render_timeline_with_audio, RenderOutcome, RenderRequest, SequentialOutcome, StereoAudioInput,
     TransitionSpec,
 };
 pub use transition::{TransitionKind, TransitionParams};

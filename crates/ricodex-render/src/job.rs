@@ -23,11 +23,11 @@
 use std::cell::Cell;
 use std::path::PathBuf;
 
-use ricodex_core::{Project, Tick, TrackId, TrackKind, TICKS_PER_SECOND};
+use ricodex_core::{AssetKind, Project, Tick, TrackId, TrackKind, TICKS_PER_SECOND};
 use ricodex_platform::VideoDecoder;
 
 use crate::cache::{RenderCache, TransitionUnitKey};
-use crate::composite::composite_cpu;
+use crate::composite::{composite_cpu, composite_video_layers};
 use crate::effects::{apply_effects, describe_stack, EffectOp};
 use crate::error::RenderError;
 use crate::frame::Frame;
@@ -335,6 +335,140 @@ pub fn render_project(
 
 // ------------------------------------------------------- sequential export
 
+/// Maintains one video track's decoder and advances it in timeline order.
+struct TrackVideoReader {
+    track_id: TrackId,
+    items: Vec<(ricodex_core::Item, PathBuf)>,
+    item_index: usize,
+    decoder: Option<VideoDecoder>,
+    last: Option<Frame>,
+    pending: Option<(Tick, Frame)>,
+    exhausted: bool,
+}
+
+impl TrackVideoReader {
+    fn new(project: &Project, track_id: TrackId) -> Result<Self, RenderError> {
+        let track = project.track(track_id).ok_or_else(|| RenderError::BadProject {
+            reason: format!("no track {track_id}"),
+        })?;
+        if track.kind != TrackKind::Video {
+            return Err(RenderError::BadProject {
+                reason: format!("track {track_id} is not a video track"),
+            });
+        }
+        let all_items = project.items(track_id).ok_or_else(|| RenderError::BadProject {
+            reason: format!("track {track_id} has no item group"),
+        })?;
+        let mut items = Vec::new();
+        for item in all_items.iter().filter(|item| item.enabled) {
+            let asset = project.assets.iter().find(|asset| asset.id == item.asset_id)
+                .ok_or_else(|| RenderError::BadProject {
+                    reason: format!("item {} points at unknown asset {}", item.id, item.asset_id),
+                })?;
+            if asset.kind != AssetKind::Video {
+                return Err(RenderError::BadProject {
+                    reason: format!("video item {} references a non-video asset", item.id),
+                });
+            }
+            items.push((item.clone(), PathBuf::from(&asset.path_hint)));
+        }
+        Ok(Self {
+            track_id,
+            items,
+            item_index: 0,
+            decoder: None,
+            last: None,
+            pending: None,
+            exhausted: false,
+        })
+    }
+
+    fn bounds(&self) -> Option<(Tick, Tick)> {
+        Some((self.items.first()?.0.start, self.items.last()?.0.end()))
+    }
+
+    fn reset_item(&mut self) {
+        self.decoder = None;
+        self.last = None;
+        self.pending = None;
+        self.exhausted = false;
+    }
+
+    /// Return the active clip frame for this track at an absolute timeline time.
+    /// Empty intervals return None so lower video tracks remain visible.
+    fn frame_at(
+        &mut self,
+        timeline_time: Tick,
+        width: u32,
+        height: u32,
+    ) -> Result<Option<Frame>, RenderError> {
+        while self.item_index < self.items.len()
+            && timeline_time >= self.items[self.item_index].0.end()
+        {
+            self.item_index += 1;
+            self.reset_item();
+        }
+        if self.item_index >= self.items.len() {
+            return Ok(None);
+        }
+
+        let (item, path) = self.items[self.item_index].clone();
+        if timeline_time < item.start {
+            return Ok(None);
+        }
+
+        if self.decoder.is_none() {
+            let mut decoder = VideoDecoder::open(&path)?;
+            decoder.seek(item.source_in)?;
+            self.decoder = Some(decoder);
+        }
+
+        let target = item.source_in + (timeline_time - item.start);
+        loop {
+            if self.pending.as_ref().map(|(time, _)| *time > target).unwrap_or(false) {
+                break;
+            }
+            let next = if self.pending.is_some() {
+                self.pending.take()
+            } else if !self.exhausted {
+                match self.decoder.as_mut().expect("active item has a decoder").next_rgb_frame(width)? {
+                    Some(rgb) => {
+                        let time = rgb.time;
+                        let frame = Frame::from_rgb24(rgb.width, rgb.height, &rgb.pixels)?
+                            .resized(width, height);
+                        Some((time, frame))
+                    }
+                    None => {
+                        self.exhausted = true;
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            match next {
+                Some((time, frame)) if time <= target => self.last = Some(frame),
+                Some((time, frame)) => {
+                    self.pending = Some((time, frame));
+                    break;
+                }
+                None => break,
+            }
+        }
+
+        if self.last.is_none() {
+            self.last = self.pending.as_ref().map(|(_, frame)| frame.clone());
+        }
+        self.last.clone().map(Some).ok_or_else(|| RenderError::BadProject {
+            reason: format!(
+                "decoder produced no frames for {} on video track {}",
+                path.display(), self.track_id
+            ),
+        })
+    }
+}
+
 /// What a finished sequential export can report about itself.
 #[derive(Clone, Debug)]
 pub struct SequentialOutcome {
@@ -347,18 +481,8 @@ pub struct SequentialOutcome {
     pub encoder_name: String,
 }
 
-/// The plain sequential export: every enabled item on one video
-/// track, in timeline order, decoded and encoded back to back with
-/// hard cuts and no transitions or effects. The optional soundtrack
-/// is supplied by the project-selected song and is mixed as stereo AAC.
-///
-/// Enabled items are rendered in timeline order. Uncovered intervals,
-/// including gaps left by disabled items, are encoded as black frames.
-/// The output spans from the first enabled clip's start to the last
-/// enabled clip's end. Overlaps and unsorted items remain invalid
-/// through Project::validate.
-/// progress fires after every encoded video frame with the fraction
-/// complete, ending at exactly 1.0.
+/// Export one video track as a hard-cut sequence. This lower-level entry
+/// point is retained for callers and tests that intentionally select a track.
 pub fn render_sequential(
     project: &Project,
     track_id: TrackId,
@@ -368,12 +492,48 @@ pub fn render_sequential(
     render_sequential_with_audio(project, track_id, output_path, None, progress)
 }
 
-/// Sequential hard-cut export with an optional stereo music bed.
-/// The supplied audio is resampled to 48 kHz, starts at output time
-/// zero, and is truncated or silence-padded to the timeline span.
+/// Export one video track with an optional stereo music bed.
 pub fn render_sequential_with_audio(
     project: &Project,
     track_id: TrackId,
+    output_path: &std::path::Path,
+    audio: Option<StereoAudioInput<'_>>,
+    progress: &mut dyn FnMut(f32),
+) -> Result<SequentialOutcome, RenderError> {
+    render_video_tracks_with_audio(project, &[track_id], output_path, audio, progress)
+}
+
+/// Export every visible video track in project stacking order.
+pub fn render_timeline(
+    project: &Project,
+    output_path: &std::path::Path,
+    progress: &mut dyn FnMut(f32),
+) -> Result<SequentialOutcome, RenderError> {
+    render_timeline_with_audio(project, output_path, None, progress)
+}
+
+/// Export every visible video track in project stacking order, optionally
+/// adding the selected stereo song as a synchronized AAC music bed.
+///
+/// Track order is bottom-to-top: later entries in Project::tracks are
+/// composited above earlier entries. A gap on an upper track reveals lower
+/// tracks; black is emitted only when no visible video track has an active clip.
+pub fn render_timeline_with_audio(
+    project: &Project,
+    output_path: &std::path::Path,
+    audio: Option<StereoAudioInput<'_>>,
+    progress: &mut dyn FnMut(f32),
+) -> Result<SequentialOutcome, RenderError> {
+    let track_ids: Vec<TrackId> = project.tracks.iter()
+        .filter(|track| track.kind == TrackKind::Video && !track.hidden)
+        .map(|track| track.id)
+        .collect();
+    render_video_tracks_with_audio(project, &track_ids, output_path, audio, progress)
+}
+
+fn render_video_tracks_with_audio(
+    project: &Project,
+    track_ids: &[TrackId],
     output_path: &std::path::Path,
     audio: Option<StereoAudioInput<'_>>,
     progress: &mut dyn FnMut(f32),
@@ -396,30 +556,29 @@ pub fn render_sequential_with_audio(
         }
     }
 
-    let track = project.track(track_id).ok_or_else(|| RenderError::BadProject {
-        reason: format!("no track {track_id}"),
-    })?;
-    if track.kind != TrackKind::Video {
-        return Err(RenderError::BadProject {
-            reason: "the sequential export renders a video track".to_string(),
-        });
+    let mut track_readers = Vec::new();
+    let mut start_time: Option<Tick> = None;
+    let mut end_time: Option<Tick> = None;
+    for track_id in track_ids {
+        let reader = TrackVideoReader::new(project, *track_id)?;
+        if let Some((start, end)) = reader.bounds() {
+            start_time = Some(start_time.map(|current| current.min(start)).unwrap_or(start));
+            end_time = Some(end_time.map(|current| current.max(end)).unwrap_or(end));
+            track_readers.push(reader);
+        }
     }
-    let all_items = project.items(track_id).ok_or_else(|| RenderError::BadProject {
-        reason: "track has no item group".to_string(),
+    let start_time = start_time.ok_or_else(|| RenderError::BadProject {
+        reason: "the timeline has no enabled clips on visible video tracks to export".to_string(),
     })?;
-    let items: Vec<&ricodex_core::Item> = all_items.iter().filter(|i| i.enabled).collect();
-    if items.is_empty() {
-        return Err(RenderError::BadProject {
-            reason: "the timeline has no enabled clips to export".to_string(),
-        });
-    }
+    let end_time = end_time.expect("a start time is set whenever a track is added");
+    let total_duration = end_time - start_time;
+
     let settings = &project.export_settings;
     let (width, height) = (settings.width, settings.height);
     let (fps_num, fps_den) = (settings.frame_rate_num, settings.frame_rate_den);
-    let total_duration = items[items.len() - 1].end() - items[0].start;
     let schedule = TimelineFrameSchedule::for_range(
-        items[0].start,
-        items[items.len() - 1].end(),
+        start_time,
+        end_time,
         fps_num,
         fps_den,
     ).ok_or_else(|| RenderError::BadProject {
@@ -432,8 +591,8 @@ pub fn render_sequential_with_audio(
         });
     }
 
-    // Audio must match the output frame schedule, not the unrounded
-    // tick duration: the encoded video duration is total_frames / fps.
+    // Audio duration follows the exact output frame count, not an independently
+    // rounded Tick duration, so video and soundtrack share the same endpoint.
     let total_audio_samples = if audio.is_some() {
         ((total_frames as i128 * OUTPUT_AUDIO_RATE as i128 * fps_den as i128)
             / fps_num as i128)
@@ -465,13 +624,11 @@ pub fn render_sequential_with_audio(
 
     let mut written = 0usize;
     let mut audio_cursor = 0usize;
-    let black_frame = Frame::solid(width, height, [0, 0, 0, 255]);
     let mut emit_frame = |frame: &Frame| -> Result<(), RenderError> {
         encoder.encode_rgb24(&frame.to_rgb24())?;
         written += 1;
 
         if let Some(input) = audio {
-            // Derive audio boundaries from the shared output frame count.
             let next_sample = ((written as i128
                 * OUTPUT_AUDIO_RATE as i128
                 * fps_den as i128)
@@ -512,88 +669,22 @@ pub fn render_sequential_with_audio(
         Ok(())
     };
 
-    // The shared schedule is consumed exactly once from the first enabled
-    // clip to the last. Any uncovered interval, including the interval left
-    // by a disabled clip, is encoded as black rather than collapsed.
-    let mut next_output_index = 0usize;
-    for item in &items {
-        let asset = project
-            .assets
-            .iter()
-            .find(|a| a.id == item.asset_id)
-            .ok_or_else(|| RenderError::BadProject {
-                reason: format!("item {} points at unknown asset {}", item.id, item.asset_id),
-            })?;
-        let path = PathBuf::from(&asset.path_hint);
-        let mut decoder = VideoDecoder::open(&path)?;
-        decoder.seek(item.source_in)?;
-
-        let mut last: Option<Frame> = None;
-        let mut pending: Option<(Tick, Frame)> = None;
-        let mut exhausted = false;
-        while next_output_index < total_frames {
-            let timeline_time = schedule.frame_time(next_output_index as u64)
-                .expect("frame index is bounded by the schedule")
-                .time;
-
-            if timeline_time < item.start {
-                emit_frame(&black_frame)?;
-                next_output_index += 1;
-                continue;
+    // Track readers are kept in project order so upper tracks composite last.
+    // Missing layers are transparent to lower tracks; no layers means black.
+    for frame_index in 0..total_frames {
+        let timeline_time = schedule.frame_time(frame_index as u64)
+            .expect("frame index is bounded by the schedule")
+            .time;
+        let mut layers = Vec::with_capacity(track_readers.len());
+        for reader in &mut track_readers {
+            if let Some(frame) = reader.frame_at(timeline_time, width, height)? {
+                layers.push(frame);
             }
-            if timeline_time >= item.end() {
-                break;
-            }
-
-            let target = item.source_in + (timeline_time - item.start);
-            loop {
-                if let Some((time, _)) = &pending {
-                    if *time > target {
-                        break;
-                    }
-                }
-                let next = if pending.is_some() {
-                    pending.take()
-                } else if !exhausted {
-                    match decoder.next_rgb_frame(width)? {
-                        Some(rgb) => {
-                            let time = rgb.time;
-                            let frame = Frame::from_rgb24(rgb.width, rgb.height, &rgb.pixels)?
-                                .resized(width, height);
-                            Some((time, frame))
-                        }
-                        None => {
-                            exhausted = true;
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
-                match next {
-                    Some((time, frame)) => {
-                        if time <= target {
-                            last = Some(frame);
-                        } else {
-                            pending = Some((time, frame));
-                            break;
-                        }
-                    }
-                    None => break,
-                }
-            }
-            if last.is_none() {
-                if let Some((_, frame)) = &pending {
-                    last = Some(frame.clone());
-                }
-            }
-            let frame = last.clone().ok_or_else(|| RenderError::BadProject {
-                reason: format!("decoder produced no frames for {}", path.display()),
-            })?;
-            emit_frame(&frame)?;
-            next_output_index += 1;
         }
+        let composite = composite_video_layers(width, height, &layers)?;
+        emit_frame(&composite)?;
     }
+
     drop(emit_frame);
     encoder.finish()?;
 

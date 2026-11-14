@@ -19,7 +19,7 @@ use ricodex_core::{
     Asset, AssetKind, Fingerprint, Item, Project, Tick, Track, TrackKind,
 };
 use ricodex_render::{
-    apply_effects, composite_cpu, composite_video_layers, frame_difference, render_project, render_sequential_with_audio, EffectOp, Frame, StereoAudioInput,
+    apply_effects, composite_cpu, composite_video_layers, frame_difference, render_project, render_sequential_with_audio, render_timeline, render_timeline_with_audio, EffectOp, Frame, StereoAudioInput,
     GpuCompositor, RenderCache, RenderRequest, TransitionKind, TransitionParams,
     TransitionSpec,
 };
@@ -558,6 +558,101 @@ fn render_cache_serves_the_second_identical_job() {
 
 // ------------------------------------------------------- sequential export
 
+
+
+fn two_track_project(a: &Path, b: &Path) -> Project {
+    let mut project = two_clip_project(a, b);
+    project.items_mut(1).unwrap().clear();
+    project.items_mut(1).unwrap().push(Item::new(
+        11, 1, Tick::ZERO, Tick::from_seconds(2.0), Tick::ZERO,
+    ));
+    project.add_track(Track::new(2, TrackKind::Video, "V2"));
+    project.items_mut(2).unwrap().push(Item::new(
+        21, 2, Tick::ZERO, Tick::from_seconds(1.0), Tick::ZERO,
+    ));
+    project
+}
+
+#[test]
+fn timeline_export_composites_upper_tracks_and_reveals_lower_tracks_in_gaps() {
+    let dir = test_dir("multitrack-composite");
+    let (a, b) = make_clips(&dir);
+    let project = two_track_project(&a, &b);
+    let output = dir.join("multitrack.mp4");
+
+    let outcome = render_timeline(&project, &output, &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 20);
+    assert_eq!(outcome.duration, Tick::from_seconds(2.0));
+
+    let rendered = decode_all(&output);
+    let source_a = decode_all(&a);
+    let source_b = decode_all(&b);
+    let to_frame = |frames: &Vec<(Tick, Vec<u8>, u32, u32)>, index: usize| {
+        let (_, pixels, width, height) = &frames[index];
+        Frame::from_rgb24(*width, *height, pixels).unwrap()
+    };
+    let upper_track_frame = to_frame(&rendered, 5);
+    let expected_upper = to_frame(&source_b, 5);
+    let lower_track_frame = to_frame(&rendered, 15);
+    let expected_lower = to_frame(&source_a, 15);
+    assert!(
+        mean_abs_diff(&upper_track_frame, &expected_upper) < 12.0,
+        "upper track should cover lower track, diff {}",
+        mean_abs_diff(&upper_track_frame, &expected_upper)
+    );
+    assert!(
+        mean_abs_diff(&lower_track_frame, &expected_lower) < 12.0,
+        "a gap on the upper track should reveal the lower track, diff {}",
+        mean_abs_diff(&lower_track_frame, &expected_lower)
+    );
+}
+
+#[test]
+fn timeline_export_ignores_hidden_video_tracks() {
+    let dir = test_dir("multitrack-hidden");
+    let (a, b) = make_clips(&dir);
+    let mut project = two_track_project(&a, &b);
+    project.track_mut(2).unwrap().hidden = true;
+    let output = dir.join("hidden-track.mp4");
+
+    let outcome = render_timeline(&project, &output, &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 20);
+    let rendered = decode_all(&output);
+    let source_a = decode_all(&a);
+    let (_, rendered_pixels, width, height) = &rendered[5];
+    let (_, source_pixels, _, _) = &source_a[5];
+    let rendered_frame = Frame::from_rgb24(*width, *height, rendered_pixels).unwrap();
+    let source_frame = Frame::from_rgb24(*width, *height, source_pixels).unwrap();
+    assert!(
+        mean_abs_diff(&rendered_frame, &source_frame) < 12.0,
+        "hidden upper track must not contribute"
+    );
+}
+
+#[test]
+fn disabled_upper_video_clip_reveals_the_lower_track() {
+    let dir = test_dir("multitrack-disabled");
+    let (a, b) = make_clips(&dir);
+    let mut project = two_track_project(&a, &b);
+    project.items_mut(2).unwrap()[0].enabled = false;
+    let output = dir.join("disabled-upper.mp4");
+
+    let outcome = render_timeline(&project, &output, &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 20);
+    let rendered = decode_all(&output);
+    let source_a = decode_all(&a);
+    for index in [5usize, 15usize] {
+        let (_, rendered_pixels, width, height) = &rendered[index];
+        let (_, source_pixels, _, _) = &source_a[index];
+        let rendered_frame = Frame::from_rgb24(*width, *height, rendered_pixels).unwrap();
+        let source_frame = Frame::from_rgb24(*width, *height, source_pixels).unwrap();
+        assert!(
+            mean_abs_diff(&rendered_frame, &source_frame) < 12.0,
+            "disabled upper clip must reveal the lower track at frame {index}"
+        );
+    }
+}
+
 /// Three 1 second clips back to back: A, B, then A again.
 fn three_clip_project(a: &Path, b: &Path) -> Project {
     let mut project = two_clip_project(a, b);
@@ -700,6 +795,10 @@ fn sequential_export_muxes_selected_stereo_song_in_sync_with_video() {
     assert_eq!(source_audio.sample_rate, 44_100);
 
     let mut project = three_clip_project(&a, &b);
+    project.add_track(Track::new(2, TrackKind::Video, "V2"));
+    project.items_mut(2).unwrap().push(Item::new(
+        4, 2, Tick::ZERO, Tick::from_seconds(1.0), Tick::ZERO,
+    ));
     project.assets.push(Asset {
         id: 3,
         fingerprint: Fingerprint::new(3003, 77, 88, 99),
@@ -713,9 +812,8 @@ fn sequential_export_muxes_selected_stereo_song_in_sync_with_video() {
 
     let output = dir.join("with-song.mp4");
     let progress_calls = RefCell::new(Vec::new());
-    let outcome = render_sequential_with_audio(
+    let outcome = render_timeline_with_audio(
         &project,
-        1,
         &output,
         Some(StereoAudioInput {
             interleaved_samples: &source_audio.samples,
