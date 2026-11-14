@@ -584,6 +584,21 @@ mod tests {
         assert_eq!(unchanged.items(1).unwrap()[0].id, 10);
     }
 
+
+    #[test]
+    fn pin_changes_participate_in_history() {
+        let mut history = History::new(project_with_one_clip());
+        history.apply(&Command::SetItemPinned {
+            item_id: 10,
+            pinned: true,
+        }).unwrap();
+        assert!(history.project().item(10).unwrap().pinned);
+        assert!(history.undo());
+        assert!(!history.project().item(10).unwrap().pinned);
+        assert!(history.redo());
+        assert!(history.project().item(10).unwrap().pinned);
+    }
+
     #[test]
     fn split_preserves_timeline_and_source_continuity() {
         let split_at = Tick::from_seconds(6.0);

@@ -1533,7 +1533,7 @@ mod tests {
         assert!(state.is_pinned(10));
         assert!(state.is_pinned(11));
         assert!(state.has_manual_edits);
-        assert!(!state.can_begin_analysis());
+        assert!(state.can_begin_analysis());
 
         assert!(state.undo_edit());
         assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 1);
@@ -1546,7 +1546,83 @@ mod tests {
         assert_eq!(state.project.items(VIDEO_TRACK_ID).unwrap().len(), 2);
         assert_eq!(state.timeline_clips().len(), 2);
         assert!(state.has_manual_edits);
-        assert!(!state.can_begin_analysis());
+        assert!(state.can_begin_analysis());
+    }
+
+
+    #[test]
+    fn saved_timeline_can_be_refined_without_replacing_pinned_clips() {
+        let mut state = state_with_media();
+        let song_index = state.pool.iter().position(|entry| entry.kind == MediaKind::Audio).unwrap();
+        assert!(state.set_song(song_index));
+        let video_asset_id = state.pool[state.video_indices()[0]].asset_id;
+
+        let mut manual = ricodex_core::Item::new(
+            10, video_asset_id, Tick::ZERO, Tick::from_seconds(4.0), Tick::ZERO,
+        );
+        manual.provenance = ItemProvenance::Manual;
+        manual.pinned = true;
+        let generated = ricodex_core::Item::new(
+            11, video_asset_id, Tick::from_seconds(4.0),
+            Tick::from_seconds(4.0), Tick::from_seconds(4.0),
+        );
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().extend([manual, generated]);
+        state.history = History::new(state.project.clone());
+        state.refresh_clip_flags();
+
+        assert!(state.has_manual_edits);
+        assert!(state.can_begin_analysis());
+
+        // Importing more media remains possible after a manual edit.
+        let prior_assets = state.project.assets.len();
+        let new_index = state.import_path(PathBuf::from("/tmp/extra-footage.mp4"));
+        assert_eq!(state.pool[new_index].kind, MediaKind::Video);
+        assert_eq!(state.project.assets.len(), prior_assets + 1);
+        // The pre-existing ready video still makes analysis available.
+        let request = state.begin_analysis(PathBuf::from("/tmp/cache")).unwrap();
+        let initial = request.initial_plan.expect("saved timeline seeds refinement");
+        assert_eq!(initial.clips.len(), 2);
+        assert_eq!(initial.clips[0].item_id, 10);
+        assert_eq!(initial.clips[0].state, ClipState::Settled);
+        assert_eq!(initial.clips[1].item_id, 11);
+        assert_eq!(initial.clips[1].state, ClipState::Provisional);
+    }
+
+    #[test]
+    fn planner_update_retains_persisted_provenance_and_pin_state() {
+        let mut state = state_with_media();
+        let video_asset_id = state.pool[state.video_indices()[0]].asset_id;
+        let mut manual = ricodex_core::Item::new(
+            10, video_asset_id, Tick::ZERO, Tick::from_seconds(4.0), Tick::ZERO,
+        );
+        manual.provenance = ItemProvenance::Manual;
+        manual.pinned = true;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(manual);
+        state.history = History::new(state.project.clone());
+
+        let plan = Plan {
+            track_id: VIDEO_TRACK_ID,
+            clips: vec![PlannedClip {
+                item_id: 10,
+                asset_id: video_asset_id,
+                start: Tick::ZERO,
+                duration: Tick::from_seconds(4.0),
+                source_in: Tick::ZERO,
+                state: ClipState::Settled,
+            }],
+            commands: vec![Command::InsertItem {
+                track_id: VIDEO_TRACK_ID,
+                item: ricodex_core::Item::new(
+                    10, video_asset_id, Tick::ZERO, Tick::from_seconds(4.0), Tick::ZERO,
+                ),
+            }],
+        };
+        state.install_plan(plan);
+        let installed = state.project.item(10).unwrap();
+        assert_eq!(installed.provenance, ItemProvenance::Manual);
+        assert!(installed.pinned);
+        assert!(state.is_pinned(10));
+        assert!(state.has_manual_edits);
     }
 
     #[test]
@@ -1591,13 +1667,16 @@ mod tests {
         let video_index = state.video_indices()[0];
         let video_asset_id = state.pool[video_index].asset_id;
         state.set_trims_seconds(video_index, 1.25, 2.0);
-        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(ricodex_core::Item::new(
+        let mut saved_clip = ricodex_core::Item::new(
             42,
             video_asset_id,
             Tick::ZERO,
             Tick::from_seconds(5.0),
             Tick::from_seconds(1.5),
-        ));
+        );
+        saved_clip.provenance = ItemProvenance::Manual;
+        saved_clip.pinned = true;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(saved_clip);
 
         let path = std::env::temp_dir().join(format!(
             "ricodex-app-project-{}.rdx",

@@ -408,6 +408,47 @@ fn schema_one_projects_migrate_source_metadata_and_single_song() {
     }));
 }
 
+
+#[test]
+fn schema_two_projects_migrate_clips_as_manual_and_pinned() {
+    let project = sample_project();
+    let mut legacy: serde_json::Value = serde_json::from_str(&project.to_json().unwrap()).unwrap();
+    legacy["schema_version"] = serde_json::Value::from(2);
+    for group in legacy["track_items"].as_array_mut().unwrap() {
+        for item in group["items"].as_array_mut().unwrap() {
+            item.as_object_mut().unwrap().remove("provenance");
+            item.as_object_mut().unwrap().remove("pinned");
+        }
+    }
+
+    let migrated = Project::from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
+    assert_eq!(migrated.schema_version, 3);
+    assert!(migrated.track_items.iter().flat_map(|group| &group.items).all(|item| {
+        item.provenance == ItemProvenance::Manual && item.pinned
+    }));
+}
+
+#[test]
+fn user_item_edits_mark_the_clip_manual_and_pinned() {
+    let project = sample_project();
+    let trimmed = project.apply(&Command::TrimItem {
+        item_id: 100,
+        new_start: None,
+        new_source_in: Some(Tick::from_seconds(1.0)),
+        new_duration: Some(Tick::from_seconds(1.5)),
+    }).map_err(|(_, error)| error).unwrap();
+    let item = trimmed.item(100).unwrap();
+    assert_eq!(item.provenance, ItemProvenance::Manual);
+    assert!(item.pinned);
+
+    let unpinned = trimmed.apply(&Command::SetItemPinned {
+        item_id: 100,
+        pinned: false,
+    }).map_err(|(_, error)| error).unwrap();
+    assert!(!unpinned.item(100).unwrap().pinned);
+    assert_eq!(unpinned.item(100).unwrap().provenance, ItemProvenance::Manual);
+}
+
 #[test]
 fn song_selection_and_source_trims_round_trip() {
     let mut project = sample_project();

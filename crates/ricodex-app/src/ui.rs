@@ -935,7 +935,7 @@ impl EditorApp {
                             ));
                         }
                         ui.label(format!(
-                            "state: {},
+                            "state: {}",
                             match clip.state {
                                 ClipState::Provisional => "provisional",
                                 ClipState::Settled => "settled",

@@ -150,7 +150,7 @@ Do not spend early milestones attempting full professional-NLE parity. Defer nod
 
 ## Current release gates
 
-- [ ] Current main commit passes Windows workspace tests.
+- [ ] Current main commit passes Windows workspace tests, including schema-3 migration and persisted-provenance refinement tests.
 - [ ] Windows release build and package staging pass.
 - [ ] Application launches on a clean Windows machine using the default renderer.
 - [ ] Import, analyze, edit, save, reopen and export smoke test passes.

@@ -12,7 +12,7 @@ The essential editing and project-persistence slice is implemented. The current 
 
 The current app export path supports a selected-song soundtrack as stereo AAC alongside H.264 video for a contiguous hard-cut video sequence. The output-level integration test decodes the resulting MP4 and checks audio/video duration agreement and stereo channel separation.
 
-The application remains alpha-stage. The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review are still outstanding. Do not treat an Actions artifact as a public release.
+The current project schema is version 3 and persists clip provenance and pin state. Schema-1/2 projects migrate with existing clips marked manual and pinned because their original provenance is unknown. The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review are still outstanding. Do not treat an Actions artifact as a public release.
 
 ## Implemented workflow
 
