@@ -1,12 +1,16 @@
 # HyperDex Studio implementation roadmap
 
-This document is the execution plan and canonical continuation guide for HyperDex Studio. It distinguishes verified implementation from intended behaviour. A feature is not complete because a type, shader, isolated test or button exists; it is complete when the user can perform the workflow end to end and the result is verified.
+This document is the execution plan and canonical continuation guide for HyperDex. It distinguishes verified implementation from intended behaviour. A feature is not complete because a type, shader, isolated test or button exists; it is complete when the user can perform the workflow end to end and the result is verified.
 
 ## Instructions for future development sessions
 
 This roadmap is the canonical continuation document for both contributors and new ChatGPT development sessions. The standalone `docs/NEW_CHAT_HANDOFF.md` has been retired. A new session must use this repository and this roadmap rather than relying on a prompt or status copied from an earlier conversation.
 
 ### Repository entry point and required reading
+### Naming convention
+
+Use **HyperDex** in ordinary prose and `hyperdex` for crate, package and code identifiers. Reserve **HyperDex Studio** for document headings, titles and explicit product-name or branding contexts.
+
 
 Repository: https://github.com/StellarEVE/HyperDex
 

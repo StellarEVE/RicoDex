@@ -1,6 +1,6 @@
 # Licensing and binary distribution decision
 
-HyperDex Studio source is intended to be licensed under Apache-2.0; see the repository's LICENSE.
+HyperDex source is intended to be licensed under Apache-2.0; see the repository's LICENSE.
 
 The Windows CI workflow currently uses the BtbN FFmpeg 8.1 LGPL shared build rather than its GPL shared build. This avoids intentionally selecting the GPL variant and keeps FFmpeg in dynamically linked DLLs. BtbN documents that its LGPL variant omits GPL-only dependencies such as libx264 and libx265. This choice alone does not establish full redistribution compliance.
 

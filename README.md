@@ -2,13 +2,13 @@
 
 **A local-first desktop video editor for beat-synchronised music videos.**
 
-HyperDex Studio analyses a song and local video footage, generates an editable first cut, and provides a native timeline for refining and exporting the result. The application is written in Rust and currently targets Windows.
+HyperDex analyses a song and local video footage, generates an editable first cut, and provides a native timeline for refining and exporting the result. The application is written in Rust and currently targets Windows.
 
-HyperDex Studio is an early-stage project, not a finished or production-ready editor. Its focus is a dependable music-video workflow rather than full professional-NLE feature parity.
+HyperDex is an early-stage project, not a finished or production-ready editor. Its focus is a dependable music-video workflow rather than full professional-NLE feature parity.
 
 ## Current project status
 
-HyperDex Studio has a working local-first analysis, editing, project-persistence and export foundation. The latest verified export milestone includes transition-aware multi-track video composition and stereo mixing of placed audio-track items with the selected-song bed. Windows CI run #95 passed workspace tests, release build and Windows packaging for the audio mixer/app-export integration. The Edit page supports transition controls and audio-track placement with undo/redo. The separate HyperDex rename CI runs #96 and #97 failed before any workflow step started, so the renamed workspace still needs one successful full Windows run. CI does not replace interactive testing on a real Windows desktop.
+HyperDex has a working local-first analysis, editing, project-persistence and export foundation. The latest verified export milestone includes transition-aware multi-track video composition and stereo mixing of placed audio-track items with the selected-song bed. Windows CI run #95 passed workspace tests, release build and Windows packaging for the audio mixer/app-export integration. The Edit page supports transition controls and audio-track placement with undo/redo. The separate HyperDex rename CI runs #96 and #97 failed before any workflow step started, so the renamed workspace still needs one successful full Windows run. CI does not replace interactive testing on a real Windows desktop.
 
 The current main branch contains the persisted schema-4 transition model, a transition-aware multi-track exporter, Edit-page transition controls and placed audio-track mixing. Core enforces Audio/Video asset compatibility, and track creation is an undoable Core command. The shared integer-Tick transition map compresses each outgoing/incoming source region into one output interval, maps other tracks through the same clock, accumulates sequential transitions and rejects overlapping cross-track regions. The app export worker decodes each unique audio asset used by visible, unmuted tracks and supplies stereo PCM to the renderer. Placed audio items follow the transition-compressed timeline, while the selected-song bed remains at normal output speed. Run #95 passed the full audio mixer/app-export pipeline. The current outstanding verification is the crate/package rename: CI runs #96 and #97 failed before starting any workflow steps.
 
@@ -156,4 +156,4 @@ These packages are experimental CI validation artifacts, not approved public red
 
 ## License
 
-HyperDex Studio source is intended to be licensed under Apache-2.0; see [LICENSE](LICENSE). This does not resolve the separate licensing obligations for FFmpeg and any optional or transitive libraries bundled with a Windows binary.
+HyperDex source is intended to be licensed under Apache-2.0; see [LICENSE](LICENSE). This does not resolve the separate licensing obligations for FFmpeg and any optional or transitive libraries bundled with a Windows binary.

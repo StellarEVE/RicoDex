@@ -5,7 +5,7 @@ Run this checklist against the latest portable ZIP or installer from GitHub Acti
 ## Install and launch
 - [ ] Extract the portable ZIP or install the Inno Setup package.
 - [ ] Confirm the Microsoft Visual C++ x64 runtime is present.
-- [ ] Launch HyperDex Studio with the packaged launcher and confirm the main window opens using the default OpenGL renderer.
+- [ ] Launch HyperDex with the packaged launcher and confirm the main window opens using the default OpenGL renderer.
 - [ ] Close and relaunch once.
 - [ ] If launch fails, collect `hyperdex.log` and the Windows error details.
 
@@ -28,7 +28,7 @@ Run this checklist against the latest portable ZIP or installer from GitHub Acti
 - [ ] Use Save As to create an `.rdx` project.
 - [ ] Make another edit and save with Ctrl+S.
 - [ ] Confirm the unsaved-changes indicator clears.
-- [ ] Close and reopen HyperDex Studio, then open the project with Ctrl+O.
+- [ ] Close and reopen HyperDex, then open the project with Ctrl+O.
 - [ ] Confirm song selection, source trims, timeline order, durations and source-in positions are restored.
 - [ ] Confirm generated/manual provenance and pin states are restored from the project.
 - [ ] Confirm pinned clips remain unchanged during re-analysis, while unpinned generated clips may be refined.
@@ -36,7 +36,7 @@ Run this checklist against the latest portable ZIP or installer from GitHub Acti
 - [ ] Confirm Ctrl+Shift+S opens Save As.
 
 ## Relink moved media
-- [ ] Close HyperDex Studio and move a source file without changing its contents.
+- [ ] Close HyperDex and move a source file without changing its contents.
 - [ ] Reopen the project, choose Locate, and select the moved original or an identical copy. Confirm acceptance.
 - [ ] Repeat with a different file and confirm it is rejected.
 - [ ] Confirm the project becomes dirty after a successful path update and can be saved.

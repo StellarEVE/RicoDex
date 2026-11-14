@@ -4,13 +4,13 @@
 **Repository:** https://github.com/StellarEVE/HyperDex  
 **Working branch:** `main`  
 **Current code head before this verification-document update:** `b54834bfbc0c70e63785ab8ff0e56650cbaba2da`
-**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/HyperDex/actions/runs/43560350393). Transition mapping passed in run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742), full-timeline transition export in run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966), Edit-page transition controls in run [#92](https://github.com/StellarEVE/HyperDex/actions/runs/43566269122), Core audio-track validation in run [#93](https://github.com/StellarEVE/HyperDex/actions/runs/43567127799), audio placement in run [#94](https://github.com/StellarEVE/HyperDex/actions/runs/43567806957), and the audio mixer/app-export integration in run [#95](https://github.com/StellarEVE/HyperDex/actions/runs/43568365543). The HyperDex Studio crate/package rename is committed in `9b7589f`, but Windows CI run [#96](https://github.com/StellarEVE/HyperDex/actions/runs/43569885027) and follow-up run [#97](https://github.com/StellarEVE/HyperDex/actions/runs/43570254373) both failed before recording any job steps; their log endpoints returned no content. These results do not establish a source compilation failure. A successful Windows workflow on the renamed tree is still required.
+**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/HyperDex/actions/runs/43560350393). Transition mapping passed in run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742), full-timeline transition export in run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966), Edit-page transition controls in run [#92](https://github.com/StellarEVE/HyperDex/actions/runs/43566269122), Core audio-track validation in run [#93](https://github.com/StellarEVE/HyperDex/actions/runs/43567127799), audio placement in run [#94](https://github.com/StellarEVE/HyperDex/actions/runs/43567806957), and the audio mixer/app-export integration in run [#95](https://github.com/StellarEVE/HyperDex/actions/runs/43568365543). The HyperDex crate/package rename is committed in `9b7589f`, but Windows CI run [#96](https://github.com/StellarEVE/HyperDex/actions/runs/43569885027) and follow-up run [#97](https://github.com/StellarEVE/HyperDex/actions/runs/43570254373) both failed before recording any job steps; their log endpoints returned no content. These results do not establish a source compilation failure. A successful Windows workflow on the renamed tree is still required.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
 ## 1. Product summary
 
-HyperDex Studio is a local-first native desktop editor for making music-synchronised videos. Users import a song and local video footage, run staged analysis, receive an editable first cut, refine the timeline and export a finished MP4. The product is intentionally narrower than a general professional non-linear editor. Media remains on the user's machine.
+HyperDex is a local-first native desktop editor for making music-synchronised videos. Users import a song and local video footage, run staged analysis, receive an editable first cut, refine the timeline and export a finished MP4. The product is intentionally narrower than a general professional non-linear editor. Media remains on the user's machine.
 
 The workspace is Rust and currently targets Windows. It contains eight crates:
 
@@ -88,7 +88,7 @@ The following remain planned or incomplete. Do not describe them as supported en
 - Physical Windows acceptance on clean machines and a representative hardware matrix.
 - FFmpeg and transitive-library licensing review before public binary redistribution.
 
-The HyperDex Studio Edit UI has a video clip editor plus a separate audio-track placement list. Audio items can be appended, muted and removed, but freeform audio drag placement and audible audio-track mixing are not yet implemented.
+The HyperDex Edit UI has a video clip editor plus a separate audio-track placement list. Audio items can be appended, muted and removed, but freeform audio drag placement and audible audio-track mixing are not yet implemented.
 
 ## 5. Verification and release status
 
