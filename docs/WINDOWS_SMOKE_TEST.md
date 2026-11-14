@@ -47,7 +47,7 @@ Run this checklist against the latest portable ZIP or installer from GitHub Acti
 - [ ] Confirm the selected song is audible as stereo AAC and starts at output time zero.
 - [ ] Verify no frames come from before an intro trim or after an outro trim.
 - [ ] Compare audio and video duration with the contiguous timeline duration.
-- [ ] Repeat without a selected song and confirm the documented video-only behaviour.
+- [ ] Repeat without a selected song. Confirm enabled items on visible, unmuted audio tracks still produce stereo AAC; confirm the export is video-only when no audible audio-track items exist.
 
 ## Known scope limits
 

@@ -53,7 +53,7 @@ Schema-1 and schema-2 projects predate persisted provenance. Their existing clip
 - Preserve timeline gaps. A gap or disabled clip on an upper video track reveals active lower tracks; areas with no active visible video layer render black.
 - When a song is selected, mux it as stereo AAC at 48 kHz, starting at output time zero.
 - Fit the soundtrack to the encoded video frame schedule: truncate longer audio or pad shorter audio with silence.
-- Without a selected song, the current app export path is video-only.
+- Without a selected song, enabled items on visible, unmuted audio tracks are still exported as stereo AAC. An export is video-only only when there is neither a selected song nor any audible audio-track item.
 
 The selected-song integration test checks that the exported MP4 contains decodable AAC audio, that left and right channels remain distinct, and that audio and video durations agree within the test tolerance.
 
@@ -63,7 +63,6 @@ The following are not yet supported by the app's full sequential export workflow
 
 - Audio captured from source video clips.
 - Per-item/track gain, fades, normalization and a dedicated limiter.
-- Per-track or per-clip gain, fades, and loudness normalization.
 - Interactive preview is not yet driven by the same schedule and renderer as export. Source-video audio, gain/fades, normalization, and a dedicated limiter also remain incomplete.
 - Consistent frame scheduling and behaviour between interactive preview and final export.
 - Cancellation during an active encode and atomic temporary-output finalization.
