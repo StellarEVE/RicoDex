@@ -154,6 +154,9 @@ impl Project {
                 let removed = items.remove(position);
                 for item in items.iter_mut().skip(position) {
                     item.start = item.start - removed.duration;
+                    // Ripple removal changes these clips' timeline placement.
+                    // Protect their current source content during later refinement.
+                    mark_manual(item);
                 }
                 Ok(())
             }
@@ -354,6 +357,8 @@ impl Project {
                 mark_manual(&mut items[position]);
                 for item in items.iter_mut().skip(position + 1) {
                     item.start = item.start + delta;
+                    // The user's ripple trim also moves every following clip.
+                    mark_manual(item);
                 }
                 Ok(())
             }
@@ -457,6 +462,8 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, 12);
         assert_eq!(remaining[0].start, Tick::from_seconds(2.0));
+        assert_eq!(remaining[0].provenance, ItemProvenance::Manual);
+        assert!(remaining[0].pinned);
         result.validate().unwrap();
     }
 
@@ -478,6 +485,8 @@ mod tests {
         }).unwrap();
         assert_eq!(shortened.item(12).unwrap().start, Tick::from_seconds(8.0));
         assert_eq!(shortened.item(10).unwrap().duration, Tick::from_seconds(6.0));
+        assert_eq!(shortened.item(12).unwrap().provenance, ItemProvenance::Manual);
+        assert!(shortened.item(12).unwrap().pinned);
         shortened.validate().unwrap();
 
         let lengthened = project.apply(&Command::RippleTrimItem {
