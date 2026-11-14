@@ -340,8 +340,8 @@ pub fn render_project(
 pub struct SequentialOutcome {
     pub output_path: PathBuf,
     pub frames_written: u64,
-    /// Total duration covered by the enabled items, first start to
-    /// last end.
+    /// Timeline span from the first enabled clip's start to the last
+    /// enabled clip's end, including any gaps.
     pub duration: Tick,
     /// The H.264 encoder the platform resolved to.
     pub encoder_name: String,
@@ -352,10 +352,11 @@ pub struct SequentialOutcome {
 /// hard cuts and no transitions or effects. The optional soundtrack
 /// is supplied by the project-selected song and is mixed as stereo AAC.
 ///
-/// The enabled items must form one contiguous run: each item must
-/// start exactly where the previous one ends. A gap, including the
-/// gap a disabled item leaves, is rejected rather than silently
-/// filled, so the output duration is always the run's duration.
+/// Enabled items are rendered in timeline order. Uncovered intervals,
+/// including gaps left by disabled items, are encoded as black frames.
+/// The output spans from the first enabled clip's start to the last
+/// enabled clip's end. Overlaps and unsorted items remain invalid
+/// through Project::validate.
 /// progress fires after every encoded video frame with the fraction
 /// complete, ending at exactly 1.0.
 pub fn render_sequential(
@@ -369,7 +370,7 @@ pub fn render_sequential(
 
 /// Sequential hard-cut export with an optional stereo music bed.
 /// The supplied audio is resampled to 48 kHz, starts at output time
-/// zero, and is truncated or silence-padded to the video run duration.
+/// zero, and is truncated or silence-padded to the timeline span.
 pub fn render_sequential_with_audio(
     project: &Project,
     track_id: TrackId,
@@ -412,17 +413,6 @@ pub fn render_sequential_with_audio(
             reason: "the timeline has no enabled clips to export".to_string(),
         });
     }
-    for pair in items.windows(2) {
-        if pair[1].start != pair[0].end() {
-            return Err(RenderError::BadProject {
-                reason: format!(
-                    "clips {} and {} are not back to back; this export renders one contiguous run",
-                    pair[0].id, pair[1].id
-                ),
-            });
-        }
-    }
-
     let settings = &project.export_settings;
     let (width, height) = (settings.width, settings.height);
     let (fps_num, fps_den) = (settings.frame_rate_num, settings.frame_rate_den);
