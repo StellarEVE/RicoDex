@@ -1963,6 +1963,62 @@ mod tests {
     }
 
     #[test]
+    fn transition_edits_are_undoable_and_can_be_cleared() {
+        let mut state = state_with_media();
+        let asset_id = state.pool[state.video_indices()[0]].asset_id;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().extend([
+            ricodex_core::Item::new(30, asset_id, Tick::ZERO, Tick::from_seconds(4.0), Tick::ZERO),
+            ricodex_core::Item::new(31, asset_id, Tick::from_seconds(4.0), Tick::from_seconds(4.0), Tick::from_seconds(4.0)),
+        ]);
+        state.history = History::new(state.project.clone());
+
+        let first = ricodex_core::ItemTransition {
+            kind: ricodex_core::TransitionKind::CrossDissolve,
+            params: ricodex_core::TransitionParams::default(),
+            duration: Tick::from_seconds(0.5),
+        };
+        state.apply_edit(&Command::SetItemTransition {
+            item_id: 31,
+            transition: Some(first),
+        }).unwrap();
+        assert_eq!(state.project.item(31).unwrap().transition_in, Some(first));
+        assert_eq!(state.project.item(31).unwrap().provenance, ItemProvenance::Manual);
+        assert!(state.project.item(31).unwrap().pinned);
+
+        assert!(state.undo_edit());
+        assert!(state.project.item(31).unwrap().transition_in.is_none());
+        assert_eq!(state.project.item(31).unwrap().provenance, ItemProvenance::Generated);
+        assert!(!state.project.item(31).unwrap().pinned);
+        assert!(state.redo_edit());
+        assert_eq!(state.project.item(31).unwrap().transition_in, Some(first));
+
+        let changed = ricodex_core::ItemTransition {
+            kind: ricodex_core::TransitionKind::DipToColor,
+            params: ricodex_core::TransitionParams::dip_white(),
+            duration: Tick::from_seconds(0.75),
+        };
+        state.apply_edit(&Command::SetItemTransition {
+            item_id: 31,
+            transition: Some(changed),
+        }).unwrap();
+        assert_eq!(state.project.item(31).unwrap().transition_in, Some(changed));
+        assert!(state.undo_edit());
+        assert_eq!(state.project.item(31).unwrap().transition_in, Some(first));
+        assert!(state.redo_edit());
+        assert_eq!(state.project.item(31).unwrap().transition_in, Some(changed));
+
+        state.apply_edit(&Command::SetItemTransition {
+            item_id: 31,
+            transition: None,
+        }).unwrap();
+        assert!(state.project.item(31).unwrap().transition_in.is_none());
+        assert!(state.undo_edit());
+        assert_eq!(state.project.item(31).unwrap().transition_in, Some(changed));
+        assert!(state.redo_edit());
+        assert!(state.project.item(31).unwrap().transition_in.is_none());
+    }
+
+    #[test]
     fn pins_toggle() {
         let mut state = state_with_media();
         let asset_id = state.project.assets.iter()

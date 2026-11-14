@@ -3,8 +3,8 @@
 **Status date:** 14 November 2026  
 **Repository:** https://github.com/StellarEVE/RicoDex  
 **Working branch:** `main`  
-**Current code head at the time this document was prepared:** `fc0355bdb132e23df4dcc8b43af8c1dbf4b99f97`  
-**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393). Documentation consolidation passed the complete pipeline in run [#89](https://github.com/StellarEVE/RicoDex/actions/runs/43561776169). Transition-mapping commit `fc0355b` passed workspace tests in Windows CI run [#90](https://github.com/StellarEVE/RicoDex/actions/runs/43564641742); the release build was still running and packaging had not started at the latest check.
+**Current code head at the time this document was prepared:** `fd24f400111ab63a4e211ab789e7163cf1cfebf7`  
+**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393). Documentation consolidation passed the complete pipeline in run [#89](https://github.com/StellarEVE/RicoDex/actions/runs/43561776169). Transition-mapping run [#90](https://github.com/StellarEVE/RicoDex/actions/runs/43564641742) has passed workspace tests, release build, runtime staging and portable ZIP creation; installer compilation was still running at the latest check. Exporter integration run [#91](https://github.com/StellarEVE/RicoDex/actions/runs/43565688966) passed workspace tests; its release build was still running. Edit-page transition controls and AppState tests are in the current code slice and await run #92.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
@@ -65,13 +65,15 @@ The transition work is split into two distinct parts:
 
 **Full-timeline rendering:** `TimelineTransitionMap` is consumed by the app-driven multi-track MP4 exporter. It compresses the combined outgoing/incoming region by exactly the persisted transition duration, maps non-transitioning tracks through the same compressed output clock, accumulates sequential compression, and rejects ambiguous overlapping regions. Dedicated outgoing/incoming readers supply the CPU compositor; the blended result is inserted at the transition track's normal stack position, with lower tracks underneath and upper tracks above. MP4 tests cover one dissolve, a transition with an upper video overlay, two sequential transitions, output frame-count reduction and selected-song stereo AAC duration/channel synchronization.
 
-**Not yet complete:** the Edit UI does not yet provide transition controls. The independent two-clip `render_project` path remains a separate narrower renderer.
+**Edit-page transition controls:** the inspector now allows selecting one of the supported transition kinds, changing its duration and clearing it. It applies `Command::SetItemTransition`, so Core validation, manual/pin provenance and History remain authoritative. AppState tests cover set, change, clear, undo and redo. This UI slice awaits Windows CI run #92.
+
+**Remaining transition verification:** exporter MP4 integration tests are in commit `fd24f400111ab63a4e211ab789e7163cf1cfebf7`; Windows run [#91](https://github.com/StellarEVE/RicoDex/actions/runs/43565688966) passed workspace tests and was building release binaries at the latest check. Mapping run [#90](https://github.com/StellarEVE/RicoDex/actions/runs/43564641742) was in installer compilation. Neither full workflow had completed at the latest check. The independent two-clip `render_project` path remains a separate narrower renderer.
 
 ## 4. Explicitly incomplete
 
 The following remain planned or incomplete. Do not describe them as supported end-to-end:
 
-- Edit-page transition controls, including set/change/clear operations through Core commands and undo/redo UI tests.
+- Preview playback driven by the same timeline schedule and renderer as export.
 - Preview playback driven by the same timeline schedule and renderer as export.
 - Timeline audio items and arbitrary audio-track placement.
 - Audio captured from source video clips.
@@ -89,7 +91,8 @@ The current Edit UI remains a small single-video-track editing surface. The rend
 
 - Multi-track exporter: verified by Windows CI run #81, including workspace tests and packaging.
 - Schema-4 transition model: passed the complete Windows CI pipeline in run #85.
-- Full-timeline transition export: implementation and MP4 integration tests are in this slice; the exact Windows CI run triggered by its commit is the verification gate.
+- Full-timeline transition export: MP4 integration tests are committed; Windows run #91 workspace tests passed and release compilation was running at the latest check.
+- Edit-page transition controls: Core command integration and AppState tests are committed; Windows run #92 is the verification gate.
 - Previous CI runs #83 and #84 failed during the first transition-model test pass. Run #83 exposed a stale test type name; run #84 exposed validation error-ordering in the transition-limit test. The stale test type was corrected, and commit `67ae474` moves transition-region aggregate validation after individual transition validation. The complete validation workflow passed in run #85.
 - Windows CI builds and packages the application, but it does not establish clean-machine interactive acceptance or hardware performance.
 - The Windows smoke-test checklist is `docs/WINDOWS_SMOKE_TEST.md`.
@@ -97,9 +100,8 @@ The current Edit UI remains a small single-video-track editing surface. The rend
 
 ## 6. Recommended next implementation sequence
 
-1. Add the Edit-page transition inspector through `Command::SetItemTransition`, with selection of transition kind, duration controls, clear/revert support and Core validation feedback.
-2. Verify setting, changing and clearing a transition through AppState/UI tests, including undo and redo.
-3. Only after Phase 2.2's UI controls and end-to-end export gates pass, begin timeline audio-item placement and mixing.
+1. Complete Windows CI runs #90, #91 and #92, diagnosing any failing test or packaging step before continuing.
+2. Once Phase 2.2 export and Edit controls are green, begin timeline audio-item placement and mixing with Core commands and deterministic MP4 audio tests.
 
 Avoid beginning preview parity or cache redesign until the timeline transition interpretation is stable. Do not introduce simultaneous transition overlaps across different video tracks without an explicit compositing and timeline-mapping design.
 

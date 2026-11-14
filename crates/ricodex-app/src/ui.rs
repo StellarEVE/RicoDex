@@ -19,7 +19,10 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use egui::{Color32, CornerRadius, RichText, Stroke};
 
-use ricodex_core::{Command, ItemId, ItemProvenance, Project, Tick};
+use ricodex_core::{
+    Command, ItemId, ItemProvenance, ItemTransition, Project, Tick, TrackKind,
+    TransitionKind, TransitionParams,
+};
 use ricodex_engine::ClipState;
 
 use crate::jobs;
@@ -47,6 +50,36 @@ pub const TEAL_DARK: Color32 = Color32::from_rgb(13, 84, 77);
 pub const LINE: Color32 = Color32::from_rgb(52, 57, 66);
 /// Warning and error text.
 pub const WARN: Color32 = Color32::from_rgb(232, 130, 130);
+
+const TRANSITION_KINDS: [TransitionKind; 11] = [
+    TransitionKind::CrossDissolve,
+    TransitionKind::DipToColor,
+    TransitionKind::FilmDissolve,
+    TransitionKind::DipToDissolve,
+    TransitionKind::CrashZoom,
+    TransitionKind::DirectionalZoom,
+    TransitionKind::TwistWheel,
+    TransitionKind::RadialTwist,
+    TransitionKind::Push,
+    TransitionKind::Slide,
+    TransitionKind::Split,
+];
+
+fn transition_label(kind: TransitionKind) -> &'static str {
+    match kind {
+        TransitionKind::CrossDissolve => "Cross dissolve",
+        TransitionKind::DipToColor => "Dip to color",
+        TransitionKind::FilmDissolve => "Film dissolve",
+        TransitionKind::DipToDissolve => "Dip to dissolve",
+        TransitionKind::CrashZoom => "Crash zoom",
+        TransitionKind::DirectionalZoom => "Directional zoom",
+        TransitionKind::TwistWheel => "Twist wheel",
+        TransitionKind::RadialTwist => "Radial twist",
+        TransitionKind::Push => "Push",
+        TransitionKind::Slide => "Slide",
+        TransitionKind::Split => "Split",
+    }
+}
 
 /// The locked theme: black and silver with teal accents, Material
 /// You language, a subtle small corner radius everywhere.
@@ -916,6 +949,21 @@ impl EditorApp {
                 let mut split_requested = false;
                 let mut delete_requested = false;
                 let mut pin_requested = false;
+                let mut transition_command: Option<Command> = None;
+
+                // Clone the selected clip and its neighbours before drawing the
+                // inspector. The Core command remains the only mutation path.
+                let transition_context = self.state.project.track_items.iter().find_map(|group| {
+                    let index = group.items.iter().position(|item| item.id == clip.item_id)?;
+                    let track = self.state.project.track(group.track_id)?;
+                    Some((
+                        group.items[index].clone(),
+                        index.checked_sub(1).map(|previous| group.items[previous].clone()),
+                        group.items.get(index + 1).cloned(),
+                        track.kind == TrackKind::Video,
+                        track.locked,
+                    ))
+                });
 
                 egui::Frame::new()
                     .fill(SURFACE)
@@ -993,6 +1041,138 @@ impl EditorApp {
                             }
                         });
 
+                        ui.separator();
+                        ui.label(RichText::new("Incoming transition").strong());
+                        match &transition_context {
+                            Some((item, previous, next, is_video_track, track_locked)) => {
+                                if !*is_video_track {
+                                    ui.label(RichText::new("Transitions are available on video tracks only.").color(SILVER_DIM).small());
+                                } else if let Some(previous) = previous {
+                                    if previous.end() != item.start {
+                                        ui.label(RichText::new("An incoming transition requires an adjacent previous clip.").color(SILVER_DIM).small());
+                                    } else if *track_locked {
+                                        ui.label(RichText::new("Unlock this track to edit its transition.").color(SILVER_DIM).small());
+                                    } else if !item.enabled || !previous.enabled {
+                                        ui.label(RichText::new("Enable both adjacent clips to render this transition.").color(SILVER_DIM).small());
+                                        if item.transition_in.is_some()
+                                            && ui.add_enabled(!pipeline_running, egui::Button::new("Clear transition")).clicked()
+                                        {
+                                            transition_command = Some(Command::SetItemTransition {
+                                                item_id: clip.item_id,
+                                                transition: None,
+                                            });
+                                        }
+                                    } else {
+                                        let previous_head = previous
+                                            .transition_in
+                                            .map(|transition| transition.duration)
+                                            .unwrap_or(Tick::ZERO);
+                                        let next_head = next
+                                            .as_ref()
+                                            .and_then(|next_item| next_item.transition_in)
+                                            .map(|transition| transition.duration)
+                                            .unwrap_or(Tick::ZERO);
+                                        let previous_available = previous.duration.as_ticks()
+                                            .saturating_sub(previous_head.as_ticks());
+                                        let current_available = item.duration.as_ticks()
+                                            .saturating_sub(next_head.as_ticks());
+                                        // Core requires the head and tail transition regions
+                                        // to leave at least one tick of each clip uncovered.
+                                        let max_duration = Tick::from_ticks(
+                                            previous_available.min(current_available).saturating_sub(1).max(0),
+                                        );
+                                        let min_duration = Tick::from_seconds(0.01);
+                                        if max_duration < min_duration {
+                                            ui.label(RichText::new("The adjacent clips are too short for a transition.").color(SILVER_DIM).small());
+                                        } else {
+                                            let current_transition = item.transition_in;
+                                            let mut selected_kind = current_transition.map(|transition| transition.kind);
+                                            ui.add_enabled_ui(!pipeline_running, |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Type");
+                                                    egui::ComboBox::from_id_salt(("incoming-transition", clip.item_id))
+                                                        .selected_text(selected_kind.map(transition_label).unwrap_or("None"))
+                                                        .show_ui(ui, |ui| {
+                                                            ui.selectable_value(&mut selected_kind, None, "None");
+                                                            for kind in TRANSITION_KINDS {
+                                                                ui.selectable_value(
+                                                                    &mut selected_kind,
+                                                                    Some(kind),
+                                                                    transition_label(kind),
+                                                                );
+                                                            }
+                                                        });
+                                                    if current_transition.is_some()
+                                                        && ui.button("Clear").clicked()
+                                                    {
+                                                        selected_kind = None;
+                                                    }
+                                                });
+
+                                                if selected_kind != current_transition.map(|transition| transition.kind) {
+                                                    let transition = selected_kind.map(|kind| {
+                                                        let default_duration = Tick::from_seconds(0.5);
+                                                        let duration = current_transition
+                                                            .map(|existing| existing.duration)
+                                                            .unwrap_or(default_duration)
+                                                            .min(max_duration);
+                                                        ItemTransition {
+                                                            kind,
+                                                            params: current_transition
+                                                                .map(|existing| existing.params)
+                                                                .unwrap_or_else(TransitionParams::default),
+                                                            duration,
+                                                        }
+                                                    });
+                                                    transition_command = Some(Command::SetItemTransition {
+                                                        item_id: clip.item_id,
+                                                        transition,
+                                                    });
+                                                }
+
+                                                if let Some(kind) = selected_kind {
+                                                    let default_duration = Tick::from_seconds(0.5).min(max_duration);
+                                                    let mut duration_seconds = current_transition
+                                                        .map(|existing| existing.duration)
+                                                        .unwrap_or(default_duration)
+                                                        .min(max_duration)
+                                                        .to_seconds();
+                                                    ui.horizontal(|ui| {
+                                                        ui.label("Duration");
+                                                        if ui.add(
+                                                            egui::DragValue::new(&mut duration_seconds)
+                                                                .speed(0.05)
+                                                                .range(min_duration.to_seconds()..=max_duration.to_seconds())
+                                                                .fixed_decimals(2)
+                                                                .suffix(" s"),
+                                                        ).changed() {
+                                                            transition_command = Some(Command::SetItemTransition {
+                                                                item_id: clip.item_id,
+                                                                transition: Some(ItemTransition {
+                                                                    kind,
+                                                                    params: current_transition
+                                                                        .map(|existing| existing.params)
+                                                                        .unwrap_or_default(),
+                                                                    duration: Tick::from_seconds(duration_seconds)
+                                                                        .max(min_duration)
+                                                                        .min(max_duration),
+                                                                }),
+                                                            });
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                        }
+                                    }
+                                } else {
+                                    ui.label(RichText::new("The first clip on a track cannot have an incoming transition.").color(SILVER_DIM).small());
+                                }
+                            }
+                            None => {
+                                ui.label(RichText::new("Transition information is unavailable for this clip.").color(SILVER_DIM).small());
+                            }
+                        }
+
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
                             delete_requested = ui
@@ -1056,6 +1236,15 @@ impl EditorApp {
                             });
                         }
                         Err(error) => self.state.notice = Some(error),
+                    }
+                }
+
+                if let Some(command) = transition_command {
+                    if self.state.project.item(clip.item_id).is_some() {
+                        match self.state.apply_edit(&command) {
+                            Ok(()) => self.state.selected_item = Some(clip.item_id),
+                            Err(error) => self.state.notice = Some(error),
+                        }
                     }
                 }
             }

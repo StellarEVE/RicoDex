@@ -10,7 +10,7 @@ RicoDex is an early-stage project, not a finished or production-ready editor. It
 
 RicoDex has a working local-first analysis, editing, project-persistence and export foundation. The latest verified export milestone is multi-track video composition: Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, and Inno Setup packaging. The app-driven exporter composes visible video tracks in project order, preserves gaps, reveals lower tracks through upper-track gaps, and can mux the selected song as stereo AAC. CI verifies automated behaviour and packaging; it does not replace interactive testing on a real Windows desktop.
 
-The current main branch contains the persisted schema-4 transition model and a transition-aware multi-track exporter. The shared integer-Tick map compresses each incoming transition's two source halves into one output interval, maps other visible tracks through the same compressed clock, accumulates sequential transitions and rejects overlapping cross-track regions. Dedicated outgoing/incoming readers feed the CPU transition compositor, and each blended result is layered at the transitioning track's normal position. MP4 integration tests cover a two-clip dissolve, track stacking, sequential transitions, output frame count and selected-song stereo AAC synchronization. The exporter integration is awaiting its Windows CI result; the Edit UI does not yet expose transition controls.
+The current main branch contains the persisted schema-4 transition model, a transition-aware multi-track exporter, and Edit-page transition controls. The shared integer-Tick map compresses each incoming transition's two source halves into one output interval, maps other visible tracks through the same compressed clock, accumulates sequential transitions and rejects overlapping cross-track regions. Dedicated outgoing/incoming readers feed the CPU transition compositor, and each blended result is layered at the transitioning track's normal position. The Edit inspector lets users choose a transition type, set its duration, and clear it through `Command::SetItemTransition`; edits use Core validation and participate in undo/redo. MP4 integration and UI/state tests have been added. Exporter commit `fd24f40` and the UI controls in the current slice are awaiting their exact Windows CI results.
 
 The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
 
@@ -30,9 +30,10 @@ The Windows desktop acceptance checklist, broader hardware validation, and FFmpe
 - Delete a clip with ripple behaviour.
 - Drag clips to reorder them.
 - Pin clips and use undo/redo.
+- Set, change and clear incoming transitions using the Edit inspector. Transition type and duration edits use Core commands and support undo/redo.
 - Route timeline edits through Core validation, commands, and snapshot history.
 
-The current sequential exporter expects a contiguous cut. Reordering therefore compacts the edited video sequence; it does not create freeform gaps. Source intro/outro trims are validated against each timeline item's source range and become locked once a timeline exists.
+The Edit-page reorder workflow compacts the edited track into a contiguous sequence; the underlying multi-track renderer can preserve gaps already present in project data. Source intro/outro trims are validated against each timeline item's source range and become locked once a timeline exists.
 
 ### Save projects and recover media
 
@@ -63,7 +64,7 @@ The following are not yet supported by the app's full sequential export workflow
 - Audio captured from source video clips.
 - Timeline audio tracks or arbitrary audio-item placement.
 - Per-track or per-clip gain, fades, and loudness normalization.
-- Transition editing controls are not yet exposed in the Edit UI. Transition rendering is integrated into MP4 export, but users cannot yet add or change transitions from the application.
+- Interactive preview is not yet driven by the same schedule and renderer as export. Transition-aware MP4 export and Edit-page transition controls are implemented in code, with the current Windows CI runs serving as their verification gates.
 - Consistent frame scheduling and behaviour between interactive preview and final export.
 - Cancellation during an active encode and atomic temporary-output finalization.
 - Manual clips can be explicitly unpinned to allow planner refinement; older projects migrate conservatively and require deliberate unpinning where regeneration is desired.
