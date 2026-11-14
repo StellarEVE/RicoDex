@@ -1,6 +1,61 @@
 # RicoDex implementation roadmap
 
-This document is the execution plan for RicoDex. It distinguishes verified implementation from intended behaviour. A feature is not complete because a type, shader, isolated test or button exists; it is complete when the user can perform the workflow end to end and the result is verified.
+This document is the execution plan and canonical continuation guide for RicoDex. It distinguishes verified implementation from intended behaviour. A feature is not complete because a type, shader, isolated test or button exists; it is complete when the user can perform the workflow end to end and the result is verified.
+
+## Instructions for future development sessions
+
+This roadmap is the canonical continuation document for both contributors and new ChatGPT development sessions. The standalone `docs/NEW_CHAT_HANDOFF.md` has been retired. A new session must use this repository and this roadmap rather than relying on a prompt or status copied from an earlier conversation.
+
+### Repository entry point and required reading
+
+Repository: https://github.com/StellarEVE/RicoDex
+
+Before changing code, read these documents from the current `main` branch:
+
+1. `README.md`
+2. `docs/DEVELOPMENT_STATUS.md`
+3. `docs/ROADMAP.md` (this document)
+4. `docs/PLAN.md`
+5. `docs/WINDOWS_SMOKE_TEST.md`
+6. `docs/LICENSING.md`
+
+Treat the live repository as authoritative. First inspect the current `main` head, recent commits, the current state of relevant Windows GitHub Actions runs, and the current source files for the task. Do not assume that commit hashes, workflow states, roadmap priorities, or implementation descriptions in an earlier conversation are still current. Reconcile discrepancies against code and completed workflow results before proceeding.
+
+### Required Git and CI workflow
+
+Work directly on main. Do not create a feature branch or pull request. Make focused commits, run the Windows GitHub Actions workflow after each meaningful implementation slice, inspect failures, fix them and do not claim success until the exact run completes successfully. Keep README.md, docs/ROADMAP.md and docs/DEVELOPMENT_STATUS.md accurate as the implementation changes.
+
+For each meaningful implementation slice:
+
+1. Inspect the relevant implementation, tests, recent history and existing architectural boundaries before editing.
+2. Implement one cohesive, reviewable slice. Avoid unrelated refactors and avoid combining speculative features.
+3. Add or update unit, integration and end-to-end tests appropriate to the user-visible behaviour. For media/render changes, prefer generated deterministic fixtures and decode/check the resulting MP4 rather than relying only on helper-level assertions.
+4. Run the available local formatting, lint and test checks. Then commit directly to `main` and let the Windows GitHub Actions workflow validate that exact commit.
+5. Inspect the exact workflow run, including individual jobs and steps. A test step passing is not equivalent to the whole workflow passing. Check release compilation, runtime staging, portable ZIP, installer creation and artifact upload where those steps apply.
+6. If a test or workflow step fails, inspect its logs, identify the actual cause, make a focused correction and rerun the workflow. Do not hide, bypass, weaken or relabel a failing test to make CI green.
+7. Update `README.md`, this roadmap and `docs/DEVELOPMENT_STATUS.md` whenever implementation status, priorities, limitations or verified capabilities change. Record exact commit hashes and workflow-run links, with the limits of each verification result.
+8. Report completion only after the exact workflow run for the relevant commit concludes successfully. Clearly distinguish local test results, CI test-step results, full Windows packaging results, and physical Windows/hardware acceptance. Never imply that CI proves hardware behaviour or clean-machine interactive acceptance.
+
+If required repository write access, a Rust execution environment, a Windows workflow, or workflow logs are unavailable, do not make uncompiled speculative implementation commits or claim verification. State the specific blocker and what could and could not be checked. Continue with independently verifiable work only where it does not undermine these rules.
+
+### Architecture and implementation rules
+
+- Core remains the source of truth for project data, timeline invariants and edit validation.
+- Every user edit must pass through a Core command using clone, validate, commit semantics and participate in undo/redo history where appropriate. UI widgets must not mutate project data directly.
+- All timeline positions, durations, overlap calculations and output-time mapping use integer `Tick` values at 254,016,000,000 ticks per second. Do not use floating-point seconds for edit or timeline arithmetic.
+- Derive output frame timestamps and frame counts from integer frame indices and the rational frame-rate numerator/denominator. Avoid cumulative rounded frame-duration addition.
+- Keep FFmpeg and codec-library access inside `ricodex-platform`. Other crates consume platform abstractions and must not directly call FFmpeg APIs.
+- CPU composition is the correctness reference. GPU output must match it for supported operations; GPU availability must never be required for correctness.
+- Preserve established track ordering, hidden-track behaviour, disabled-item behaviour, gap handling, deterministic source-time mapping and soundtrack synchronization when changing the renderer.
+- Long-running work must use background jobs, bounded resources, accurate progress and real cancellation. Do not claim cancellation until active decoding/rendering/encoding actually stops.
+- Keep project JSON readable and versioned. Add forward migrations and round-trip tests for schema changes; do not silently discard older project data.
+- Keep scope focused on the music-video workflow. Do not pursue broad professional-NLE parity or reopen explicit product non-goals without an owner decision.
+- Do not silently resolve decisions reserved for the owner, especially codec licensing/export-floor choices, design-system details and physical hardware acceptance.
+
+### How to use the roadmap and status documents
+
+This file defines the delivery sequence, acceptance criteria and durable engineering instructions. `docs/DEVELOPMENT_STATUS.md` is the concise snapshot of what is actually implemented, what is incomplete and what exact commits/runs verify it. `README.md` is the user-facing product summary and must not overstate capabilities. When these documents disagree with the current source or CI, verify the source and workflow, then correct all affected documents in the same focused development slice. Do not recreate a separate chat-handoff document; maintain the continuation instructions here.
+
 
 ## Product direction
 
@@ -27,7 +82,7 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 
 The latest fully verified end-to-end export implementation is commit 3bdd237 (Render visible video tracks in stacking order). Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This confirms the software build and package workflow, not physical desktop acceptance or hardware compatibility.
 
-The current main branch has since added a persisted transition model in schema 4. The latest validation-order correction is commit 67ae474; Windows CI run #85 is currently validating that change. Do not treat the schema-4 transition model as fully verified or as rendered in app exports until the current CI run passes and renderer integration is complete.
+The current main branch has since added a persisted transition model in schema 4. The latest validation-order correction is commit 67ae474. At the latest check, Windows CI run #85 had passed the workspace-test step, while the release build was still running and packaging had not started. Do not treat the schema-4 change as fully CI-verified until the exact run completes successfully; regardless of that model-level verification, transition metadata is not yet rendered by app exports.
 
 - A shared rational TimelineFrameSchedule calculates frame timestamps from an integer frame index and rational frame rate. It supports bounded absolute-time ranges and has tests for long-duration timestamp stability.
 - TimelineFrameSchedule::layers_at samples active enabled items across project tracks, maps each layer to source time, and skips hidden tracks and muted audio tracks.
@@ -90,7 +145,7 @@ Verified foundations:
 - A rational frame schedule is shared by the sequential exporter and the timeline sampling API. Frame times are calculated from integer frame indices and a rational frame rate rather than accumulated floating-point frame durations.
 - The app-driven exporter handles multiple clips across visible video tracks, hard cuts, ordinary gaps and gaps left by disabled clips. Track order is bottom-to-top; upper-track gaps reveal lower tracks, and uncovered frames are encoded as black. Windows CI run #81 passed the multi-track MP4 integration tests and full packaging pipeline.
 - The selected-song soundtrack can be encoded as stereo AAC alongside the video, with output-level tests for duration and channel separation.
-- The two-item transition/effect rendering path and transition-region cache exist, but are not yet part of full-timeline app export. Schema 4 now persists an incoming transition choice on an item with Core validation and an undoable command; its latest validation correction is awaiting Windows CI run #85.
+- The two-item transition/effect rendering path and transition-region cache exist, but are not yet part of full-timeline app export. Schema 4 now persists an incoming transition choice on an item with Core validation and an undoable command; the run #85 workspace-test step passed, but the full Windows workflow was still running at the latest check.
 
 Remaining work, in implementation order:
 
@@ -106,7 +161,7 @@ Keep the first supported output matrix deliberately small and testable, such as 
 
 **Current implementation stage: Phase 2.2, full-timeline transitions.**
 
-The first data-model slice is on main: an incoming clip can persist a transition kind, parameters and duration; Core validates the adjacent cut and duration constraints; `SetItemTransition` participates in undo/redo; and schema 1–3 projects migrate with no transition silently added. Windows CI run #85 is checking the latest validation correction. The remaining implementation is to define output-time compression semantics, integrate the CPU transition compositor into the multi-track exporter, then add UI controls. Acceptance tests should cover a two-clip dissolve, a transition with a lower video track underneath, multiple sequential transitions where their regions do not overlap, disabled/hidden-track behaviour, duration/frame-count reduction, and soundtrack synchronization. Reject transition regions that overlap in project time until simultaneous cross-track transitions have an explicit compositing model.
+The first data-model slice is on main: an incoming clip can persist a transition kind, parameters and duration; Core validates the adjacent cut and duration constraints; `SetItemTransition` participates in undo/redo; and schema 1–3 projects migrate with no transition silently added. The latest validation correction is commit `67ae474269399175d4d507ca45b8cc12c067ea5b`; the workspace-test step in Windows CI run #85 passed, but release compilation and packaging were not yet complete at the latest check. The remaining implementation is to define output-time compression semantics, integrate the CPU transition compositor into the multi-track exporter, then add UI controls. Acceptance tests should cover a two-clip dissolve, a transition with a lower video track underneath, multiple sequential transitions where their regions do not overlap, disabled/hidden-track behaviour, duration/frame-count reduction, and soundtrack synchronization. Reject transition regions that overlap in project time until simultaneous cross-track transitions have an explicit compositing model.
 
 **Phase 2 exit gate:** a representative multi-track project with gaps, transitions and synchronized audio previews and exports with matching timing and content.
 
@@ -179,7 +234,7 @@ Do not spend early milestones attempting full professional-NLE parity. Defer nod
 ## Current release gates
 
 - [x] Multi-track export commit passes Windows workspace tests, release build, runtime dependency staging, portable ZIP and installer packaging (CI run #81).
-- [ ] Schema-4 incoming-transition model and validation-order correction pass Windows CI (run #85 currently in progress).
+- [ ] Schema-4 incoming-transition model and validation-order correction pass the complete Windows CI workflow (run #85 workspace tests passed; release build was still running and packaging remained pending at the latest check).
 - [x] Windows package staging, portable ZIP and installer creation pass for the verified multi-track export commit (CI run #81).
 - [ ] Application launches on a clean Windows machine using the default renderer.
 - [ ] Import, analyze, edit, save, reopen and export smoke test passes.

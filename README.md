@@ -10,7 +10,7 @@ RicoDex is an early-stage project, not a finished or production-ready editor. It
 
 RicoDex has a working local-first analysis, editing, project-persistence and export foundation. The latest verified export milestone is multi-track video composition: Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, and Inno Setup packaging. The app-driven exporter composes visible video tracks in project order, preserves gaps, reveals lower tracks through upper-track gaps, and can mux the selected song as stereo AAC. CI verifies automated behaviour and packaging; it does not replace interactive testing on a real Windows desktop.
 
-The current main branch also contains the first persisted transition-model slice. Project schema 4 stores an optional transition on each incoming clip, provides an undoable Core command, and validates adjacent items and transition durations. The latest validation-order correction is commit 67ae474 and Windows CI run #85 is in progress. The transition metadata is not yet consumed by the app-driven multi-track renderer, and the main Edit UI does not yet expose transition controls.
+The current main branch also contains the first persisted transition-model slice. Project schema 4 stores an optional transition on each incoming clip, provides an undoable Core command, and validates adjacent items and transition durations. The latest validation-order correction is commit 67ae474. Windows CI run #85 has passed its workspace-test step; the release build was still running and packaging had not yet completed at the latest check. The transition metadata is not yet consumed by the app-driven multi-track renderer, and the main Edit UI does not yet expose transition controls.
 
 The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
 
@@ -143,9 +143,8 @@ These packages are experimental CI validation artifacts, not approved public red
 ## Project documents
 
 - [Product plan](docs/PLAN.md)
-- [Implementation roadmap and current gaps](docs/ROADMAP.md)
+- [Implementation roadmap, current gaps and development-session instructions](docs/ROADMAP.md)
 - [Development status and verified capabilities](docs/DEVELOPMENT_STATUS.md)
-- [New-chat handoff prompt](docs/NEW_CHAT_HANDOFF.md)
 - [Windows desktop acceptance checklist](docs/WINDOWS_SMOKE_TEST.md)
 - [Licensing and binary distribution](docs/LICENSING.md)
 - [Initial foundation migration notes](RELEASE_NOTES.md)

@@ -4,7 +4,7 @@
 **Repository:** https://github.com/StellarEVE/RicoDex  
 **Working branch:** `main`  
 **Current code head at the time this document was prepared:** `67ae474269399175d4d507ca45b8cc12c067ea5b`  
-**Current verification:** Windows CI run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393) is running the workspace tests for the latest schema-4 validation correction.
+**Current verification:** Windows CI run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393) has passed the workspace-test step for the latest schema-4 validation correction. The release build was still running and Windows package creation/upload remained pending at the latest check.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
@@ -61,7 +61,7 @@ The workspace is Rust and currently targets Windows. It contains eight crates:
 
 The transition work is split into two distinct parts:
 
-**Persisted model foundation on main:** schema 4 stores `ItemTransition { kind, params, duration }` on the incoming item at a cut. The Core validation rules keep transitions attached to adjacent clips on a video track and prevent their regions from consuming the whole clip. The command is undoable. Older project schemas migrate without inventing a transition. The latest validation-order correction is commit `67ae474`; CI run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393) is currently running.
+**Persisted model foundation on main:** schema 4 stores `ItemTransition { kind, params, duration }` on the incoming item at a cut. The Core validation rules keep transitions attached to adjacent clips on a video track and prevent their regions from consuming the whole clip. The command is undoable. Older project schemas migrate without inventing a transition. The latest validation-order correction is commit `67ae474`; the workspace-test step in CI run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393) passed, but the full workflow was still running at the latest check.
 
 **Not yet complete:** the app-driven multi-track timeline exporter does not read `transition_in` yet. It still renders hard cuts. The main Edit UI does not yet offer transition controls. The independent two-clip `render_project` path is not a substitute for full-timeline transition rendering.
 
@@ -87,8 +87,8 @@ The current Edit UI remains a small single-video-track editing surface. The rend
 ## 5. Verification and release status
 
 - Multi-track exporter: verified by Windows CI run #81, including workspace tests and packaging.
-- Schema-4 transition model: present on main; latest validation-order fix is being checked by Windows CI run #85.
-- Previous CI runs #83 and #84 failed during the first transition-model test pass. Run #83 exposed a stale test type name; run #84 exposed validation error-ordering in the transition-limit test. The stale test type was corrected, and commit `67ae474` moves transition-region aggregate validation after individual transition validation.
+- Schema-4 transition model: present on main; the run #85 workspace-test step passed. Release compilation and packaging had not completed at the latest check.
+- Previous CI runs #83 and #84 failed during the first transition-model test pass. Run #83 exposed a stale test type name; run #84 exposed validation error-ordering in the transition-limit test. The stale test type was corrected, and commit `67ae474` moves transition-region aggregate validation after individual transition validation. The run #85 workspace-test step now passes; the final workflow conclusion is still required.
 - Windows CI builds and packages the application, but it does not establish clean-machine interactive acceptance or hardware performance.
 - The Windows smoke-test checklist is `docs/WINDOWS_SMOKE_TEST.md`.
 - The CI artifact is a validation package, not an approved public release. See `docs/LICENSING.md`.
