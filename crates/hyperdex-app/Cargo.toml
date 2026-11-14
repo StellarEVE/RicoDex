@@ -1,0 +1,26 @@
+[package]
+name = "hyperdex-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HyperDex Studio desktop application front end"
+
+[dependencies]
+hyperdex-core = { path = "../hyperdex-core" }
+hyperdex-audio = { path = "../hyperdex-audio" }
+hyperdex-media = { path = "../hyperdex-media" }
+hyperdex-engine = { path = "../hyperdex-engine" }
+hyperdex-render = { path = "../hyperdex-render" }
+# The interface toolkit lives only in this crate, so the front end
+# stays replaceable (see tools/check_layers.sh). egui 0.37 is the
+# current release the crates index offers; eframe is its runner.
+# Compile both renderers. HyperDex defaults to glow for Windows
+# startup compatibility; wgpu remains available as an explicit opt-in.
+eframe = { version = "0.37", features = ["glow"] }
+egui = "0.37"
+# Native file dialogs for import and export paths. Paths can also
+# arrive through the HYPERDEX_IMPORT and HYPERDEX_EXPORT environment
+# variables, which is how the automated runs drive the app.
+rfd = "0.18"
+# Writing the HYPERDEX_SHOT screenshot captures.
+png = "0.18"

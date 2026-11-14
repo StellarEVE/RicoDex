@@ -1,29 +1,29 @@
-# RicoDex development status
+# HyperDex Studio development status
 
 **Status date:** 14 November 2026  
-**Repository:** https://github.com/StellarEVE/RicoDex  
+**Repository:** https://github.com/StellarEVE/HyperDex  
 **Working branch:** `main`  
-**Last committed base before the current Edit-page audio placement slice:** `fef5f5b888b8479e75b16946c61d03844563d774`  
-**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393). Documentation consolidation passed the complete pipeline in run [#89](https://github.com/StellarEVE/RicoDex/actions/runs/43561776169). Transition mapping passed the complete Windows pipeline in run [#90](https://github.com/StellarEVE/RicoDex/actions/runs/43564641742). Exporter integration passed the complete Windows CI pipeline in run [#91](https://github.com/StellarEVE/RicoDex/actions/runs/43565688966). Edit-page transition controls run [#92](https://github.com/StellarEVE/RicoDex/actions/runs/43566269122) passed workspace tests; the release build was still running at the latest check. Core audio-track foundation run [#93](https://github.com/StellarEVE/RicoDex/actions/runs/43567127799) was still running workspace tests. The current Edit-page audio placement slice requires its own Windows workflow result.
+**Base commit for the HyperDex Studio rename:** `b26245777ae5dae13d66d3ba5add93f6fb7ace9a`  
+**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/HyperDex/actions/runs/43560350393). Documentation consolidation passed the complete pipeline in run [#89](https://github.com/StellarEVE/HyperDex/actions/runs/43561776169). Transition mapping passed the complete Windows pipeline in run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742). Exporter integration passed the complete Windows CI pipeline in run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966). Edit-page transition controls passed the complete workflow in run [#92](https://github.com/StellarEVE/HyperDex/actions/runs/43566269122). Core audio-track foundation passed the complete workflow in run [#93](https://github.com/StellarEVE/HyperDex/actions/runs/43567127799). Audio placement run [#94](https://github.com/StellarEVE/HyperDex/actions/runs/43567806957) passed workspace tests, release compilation, runtime staging and portable ZIP creation; installer compilation was active at the latest check. Audio mixer and app-export integration run [#95](https://github.com/StellarEVE/HyperDex/actions/runs/43568365543) passed workspace tests and was compiling release binaries. The HyperDex Studio rename commit triggers a fresh full Windows workflow.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
 ## 1. Product summary
 
-RicoDex is a local-first native desktop editor for making music-synchronised videos. Users import a song and local video footage, run staged analysis, receive an editable first cut, refine the timeline and export a finished MP4. The product is intentionally narrower than a general professional non-linear editor. Media remains on the user's machine.
+HyperDex Studio is a local-first native desktop editor for making music-synchronised videos. Users import a song and local video footage, run staged analysis, receive an editable first cut, refine the timeline and export a finished MP4. The product is intentionally narrower than a general professional non-linear editor. Media remains on the user's machine.
 
 The workspace is Rust and currently targets Windows. It contains eight crates:
 
 | Crate | Responsibility |
 |---|---|
-| `ricodex-core` | Project model, exact Tick time, validation, commands, undo/redo and JSON persistence |
-| `ricodex-audio` | Audio decoding, tempo/onset analysis, bars, phrases and change points |
-| `ricodex-media` | Media fingerprints, staged footage analysis and analysis cache |
-| `ricodex-platform` | FFmpeg-backed probe/decode/encode and hardware capability trials |
-| `ricodex-engine` | Deterministic cut planning and analysis orchestration |
-| `ricodex-render` | Frame scheduling, CPU/GPU composition, effects, transitions, timeline export and render cache |
-| `ricodex-app` | Native Media, Cut, Edit and Export pages plus background jobs |
-| `ricodex-cli` | Placeholder executable that currently prints its name/version |
+| `hyperdex-core` | Project model, exact Tick time, validation, commands, undo/redo and JSON persistence |
+| `hyperdex-audio` | Audio decoding, tempo/onset analysis, bars, phrases and change points |
+| `hyperdex-media` | Media fingerprints, staged footage analysis and analysis cache |
+| `hyperdex-platform` | FFmpeg-backed probe/decode/encode and hardware capability trials |
+| `hyperdex-engine` | Deterministic cut planning and analysis orchestration |
+| `hyperdex-render` | Frame scheduling, CPU/GPU composition, effects, transitions, timeline export and render cache |
+| `hyperdex-app` | Native Media, Cut, Edit and Export pages plus background jobs |
+| `hyperdex-cli` | Placeholder executable that currently prints its name/version |
 
 ## 2. Implemented capabilities
 
@@ -57,13 +57,13 @@ The workspace is Rust and currently targets Windows. It contains eight crates:
 - Ordinary gaps and intervals occupied by disabled clips are preserved in the rendered timeline. Items on an individual Core track remain non-overlapping.
 - The app can mux the selected song as stereo AAC, resampled to 48 kHz and synchronized to the encoded video frame count. The MP4 integration test decodes the output and verifies duration and stereo channel separation.
 - The renderer has CPU reference implementations for the named transitions and a GPU compositor for a supported subset. A separate `render_project` path can render exactly two clips with one transition, a request-level effect stack and an optional transition-region cache.
-- Windows CI run [#81](https://github.com/StellarEVE/RicoDex/actions/runs/43554149714) passed the workspace tests, release build, runtime staging, portable ZIP, Inno Setup package and artifact upload for the multi-track exporter.
+- Windows CI run [#81](https://github.com/StellarEVE/HyperDex/actions/runs/43554149714) passed the workspace tests, release build, runtime staging, portable ZIP, Inno Setup package and artifact upload for the multi-track exporter.
 
 ## 3. Current transition status
 
 The transition work is split into two distinct parts:
 
-**Persisted model foundation on main:** schema 4 stores `ItemTransition { kind, params, duration }` on the incoming item at a cut. Core validates adjacency and duration constraints, the command participates in undo/redo, and older schemas migrate without inventing transitions. The latest validation-order correction `67ae474` passed complete Windows CI run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393).
+**Persisted model foundation on main:** schema 4 stores `ItemTransition { kind, params, duration }` on the incoming item at a cut. Core validates adjacency and duration constraints, the command participates in undo/redo, and older schemas migrate without inventing transitions. The latest validation-order correction `67ae474` passed complete Windows CI run [#85](https://github.com/StellarEVE/HyperDex/actions/runs/43560350393).
 
 **Full-timeline rendering:** `TimelineTransitionMap` is consumed by the app-driven multi-track MP4 exporter. It compresses the combined outgoing/incoming region by exactly the persisted transition duration, maps non-transitioning tracks through the same compressed output clock, accumulates sequential compression, and rejects ambiguous overlapping regions. Dedicated outgoing/incoming readers supply the CPU compositor; the blended result is inserted at the transition track's normal stack position, with lower tracks underneath and upper tracks above. MP4 tests cover one dissolve, a transition with an upper video overlay, two sequential transitions, output frame-count reduction and selected-song stereo AAC duration/channel synchronization.
 
@@ -71,7 +71,7 @@ The transition work is split into two distinct parts:
 
 **Edit-page transition controls:** the inspector now allows selecting one of the supported transition kinds, changing its duration and clearing it. It applies `Command::SetItemTransition`, so Core validation, manual/pin provenance and History remain authoritative. AppState tests cover set, change, clear, undo and redo. This UI slice awaits Windows CI run #92.
 
-**Remaining transition verification:** exporter MP4 integration tests passed in Windows run [#91](https://github.com/StellarEVE/RicoDex/actions/runs/43565688966). Mapping run [#90](https://github.com/StellarEVE/RicoDex/actions/runs/43564641742) also passed the full pipeline. The independent two-clip `render_project` path remains a separate narrower renderer.
+**Remaining transition verification:** exporter MP4 integration tests passed in Windows run [#91](https://github.com/StellarEVE/HyperDex/actions/runs/43565688966). Mapping run [#90](https://github.com/StellarEVE/HyperDex/actions/runs/43564641742) also passed the full pipeline. The independent two-clip `render_project` path remains a separate narrower renderer.
 
 ## 4. Explicitly incomplete
 
@@ -88,7 +88,7 @@ The following remain planned or incomplete. Do not describe them as supported en
 - Physical Windows acceptance on clean machines and a representative hardware matrix.
 - FFmpeg and transitive-library licensing review before public binary redistribution.
 
-The Edit UI has a video clip editor plus a separate audio-track placement list. Audio items can be appended, muted and removed, but freeform audio drag placement and audible audio-track mixing are not yet implemented.
+The HyperDex Studio Edit UI has a video clip editor plus a separate audio-track placement list. Audio items can be appended, muted and removed, but freeform audio drag placement and audible audio-track mixing are not yet implemented.
 
 ## 5. Verification and release status
 
@@ -116,7 +116,7 @@ Avoid beginning preview parity or cache redesign until the timeline transition i
 - Do not claim a feature or commit passed until its exact CI run has completed successfully.
 - Keep Core as the source of truth. UI edits go through Core commands and history.
 - Use integer `Tick` values for all timeline positions and durations.
-- Keep codec/FFmpeg access in `ricodex-platform`.
+- Keep codec/FFmpeg access in `hyperdex-platform`.
 - Keep CPU composition as the correctness reference for GPU results.
 - Update `README.md`, `docs/ROADMAP.md` and this status document when capabilities or priorities materially change.
 - Include the exact commit SHA and CI run link in progress handoffs.

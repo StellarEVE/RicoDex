@@ -1,0 +1,9 @@
+[package]
+name = "hyperdex-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HyperDex command-line front end"
+
+[dependencies]
+hyperdex-core = { path = "../hyperdex-core" }

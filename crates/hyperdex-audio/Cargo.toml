@@ -1,0 +1,12 @@
+[package]
+name = "hyperdex-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HyperDex audio analysis crate"
+
+[dependencies]
+hyperdex-core = { path = "../hyperdex-core" }
+symphonia = { version = "0.5", features = ["all"] }
+realfft = "3"
+num-complex = "0.4"

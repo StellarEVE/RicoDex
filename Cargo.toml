@@ -1,21 +1,21 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/ricodex-core",
-    "crates/ricodex-audio",
-    "crates/ricodex-media",
-    "crates/ricodex-platform",
-    "crates/ricodex-render",
-    "crates/ricodex-engine",
-    "crates/ricodex-app",
-    "crates/ricodex-cli",
+    "crates/hyperdex-core",
+    "crates/hyperdex-audio",
+    "crates/hyperdex-media",
+    "crates/hyperdex-platform",
+    "crates/hyperdex-render",
+    "crates/hyperdex-engine",
+    "crates/hyperdex-app",
+    "crates/hyperdex-cli",
 ]
 
 [workspace.package]
 version = "0.1.0-alpha.9"
 edition = "2021"
 license = "Apache-2.0"
-description = "RicoDex: a local beat-synced music video editor"
+description = "HyperDex Studio: a local beat-synced music video editor"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -1,14 +1,14 @@
-# RicoDex
+# HyperDex Studio
 
 **A local-first desktop video editor for beat-synchronised music videos.**
 
-RicoDex analyses a song and local video footage, generates an editable first cut, and provides a native timeline for refining and exporting the result. The application is written in Rust and currently targets Windows.
+HyperDex Studio analyses a song and local video footage, generates an editable first cut, and provides a native timeline for refining and exporting the result. The application is written in Rust and currently targets Windows.
 
-RicoDex is an early-stage project, not a finished or production-ready editor. Its focus is a dependable music-video workflow rather than full professional-NLE feature parity.
+HyperDex Studio is an early-stage project, not a finished or production-ready editor. Its focus is a dependable music-video workflow rather than full professional-NLE feature parity.
 
 ## Current project status
 
-RicoDex has a working local-first analysis, editing, project-persistence and export foundation. The latest verified export milestone is multi-track video composition: Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, and Inno Setup packaging. The app-driven exporter composes visible video tracks in project order, preserves gaps, reveals lower tracks through upper-track gaps, and can mux the selected song as stereo AAC. CI verifies automated behaviour and packaging; it does not replace interactive testing on a real Windows desktop.
+HyperDex Studio has a working local-first analysis, editing, project-persistence and export foundation. The latest fully verified export milestone is transition-aware multi-track video composition: Windows CI run #91 passed workspace tests, release build, runtime dependency staging, portable ZIP creation and Inno Setup packaging. The Edit page also supports transition controls with undo/redo. The audio-track placement and mixer integration are in progress and remain subject to their own Windows CI gates. CI verifies automated behaviour and packaging; it does not replace interactive testing on a real Windows desktop.
 
 The current main branch contains the persisted schema-4 transition model, a transition-aware multi-track exporter, and Edit-page transition controls. Core now enforces that Audio tracks contain Audio assets and Video tracks contain Video assets, and track creation is represented by an undoable Core command. The shared integer-Tick map compresses each incoming transition's two source halves into one output interval, maps other visible tracks through the same compressed clock, accumulates sequential transitions and rejects overlapping cross-track regions. Dedicated outgoing/incoming readers feed the CPU transition compositor, and each blended result is layered at the transitioning track's normal position. The Edit inspector lets users choose a transition type, set its duration, and clear it through `Command::SetItemTransition`; edits use Core validation and participate in undo/redo. MP4 integration and UI/state tests have been added. Exporter commit `fd24f40` and the UI controls in the current slice are awaiting their exact Windows CI results.
 
@@ -77,16 +77,16 @@ The current Windows desktop workflow has not yet been manually smoke-tested acro
 
 | Crate | Responsibility |
 |---|---|
-| `ricodex-core` | Project and timeline model, exact tick time, validation, edit commands, undo/redo history, and JSON persistence |
-| `ricodex-audio` | Song decoding, stereo audio decoding, and musical structure analysis |
-| `ricodex-media` | Media fingerprinting, staged footage analysis, and analysis cache |
-| `ricodex-platform` | FFmpeg-backed probing, decoding, encoding, and hardware capability trials |
-| `ricodex-engine` | Deterministic cut planning and analysis orchestration |
-| `ricodex-render` | CPU reference composition, GPU composition, effects, transitions, sequential export, and render cache |
-| `ricodex-app` | Native desktop interface and background-job coordination |
-| `ricodex-cli` | CLI executable placeholder; currently prints its name and version only |
+| `hyperdex-core` | Project and timeline model, exact tick time, validation, edit commands, undo/redo history, and JSON persistence |
+| `hyperdex-audio` | Song decoding, stereo audio decoding, and musical structure analysis |
+| `hyperdex-media` | Media fingerprinting, staged footage analysis, and analysis cache |
+| `hyperdex-platform` | FFmpeg-backed probing, decoding, encoding, and hardware capability trials |
+| `hyperdex-engine` | Deterministic cut planning and analysis orchestration |
+| `hyperdex-render` | CPU reference composition, GPU composition, effects, transitions, sequential export, and render cache |
+| `hyperdex-app` | Native desktop interface and background-job coordination |
+| `hyperdex-cli` | CLI executable placeholder; currently prints its name and version only |
 
-The internal `ricodex-*` crate and executable names are retained from the imported foundation. The product identity is RicoDex.
+The internal crates and binaries use the `hyperdex-*` naming convention. The full product identity is HyperDex Studio.
 
 ## Build from source
 
@@ -118,24 +118,24 @@ cargo build --release --workspace
 To launch the desktop application from the workspace:
 
 ```powershell
-cargo run -p ricodex-app
+cargo run -p hyperdex-app
 ```
 
 The application defaults to the OpenGL (`glow`) renderer for Windows startup compatibility. To opt in to the wgpu renderer for a test run:
 
 ```powershell
-$env:RICODEX_RENDERER = "wgpu"
-cargo run -p ricodex-app
+$env:HYPERDEX_RENDERER = "wgpu"
+cargo run -p hyperdex-app
 ```
 
-The release desktop executable is named `ricodex-app.exe`. The CLI executable is named `ricodex-cli.exe` and is currently a version-printing stub.
+The release desktop executable is named `hyperdex-app.exe` and is branded HyperDex Studio. The CLI executable is named `hyperdex-cli.exe` and is currently a version-printing stub.
 
 ## Windows CI and packages
 
 The [Windows CI workflow](.github/workflows/ci.yml) runs for pull requests targeting `main`, pushes to `main`, and manual workflow dispatches. It:
 
 1. Downloads the FFmpeg LGPL shared development build and configures the Rust bindings.
-2. Downloads a separate GPL-enabled FFmpeg executable only to generate H.264 test fixtures. This test-only executable is not the FFmpeg runtime packaged with RicoDex.
+2. Downloads a separate GPL-enabled FFmpeg executable only to generate H.264 test fixtures. This test-only executable is not the FFmpeg runtime packaged with HyperDex.
 3. Audits test configuration and runs `cargo test --workspace`.
 4. Builds the release workspace.
 5. Stages the desktop app, CLI executable, FFmpeg runtime DLLs, Microsoft Visual C++ Redistributable, and notices.
@@ -156,4 +156,4 @@ These packages are experimental CI validation artifacts, not approved public red
 
 ## License
 
-RicoDex source is intended to be licensed under Apache-2.0; see [LICENSE](LICENSE). This does not resolve the separate licensing obligations for FFmpeg and any optional or transitive libraries bundled with a Windows binary.
+HyperDex Studio source is intended to be licensed under Apache-2.0; see [LICENSE](LICENSE). This does not resolve the separate licensing obligations for FFmpeg and any optional or transitive libraries bundled with a Windows binary.

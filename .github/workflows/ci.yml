@@ -51,7 +51,7 @@ jobs:
           if (-not (Test-Path $testFfmpeg)) { throw "Test-only FFmpeg executable was not found." }
           $encoders = (& $testFfmpeg -hide_banner -encoders 2>&1 | Out-String)
           if ($encoders -notmatch "libx264") { throw "Test-only FFmpeg build does not provide libx264." }
-          "RICODEX_TEST_FFMPEG=$testFfmpeg" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "HYPERDEX_TEST_FFMPEG=$testFfmpeg" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Audit H.264 test fixture configuration
         shell: pwsh
         run: ./tools/check_test_ffmpeg.ps1
@@ -76,7 +76,7 @@ jobs:
       - name: Create portable ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path "dist\portable\*" -DestinationPath "dist\RicoDex-Windows-x64.zip" -CompressionLevel Optimal
+          Compress-Archive -Path "dist\portable\*" -DestinationPath "dist\HyperDexStudio-Windows-x64.zip" -CompressionLevel Optimal
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
       - name: Build Windows installer
@@ -84,14 +84,14 @@ jobs:
         run: |
           $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe" | Select-Object -First 1
           if (-not $iscc) { throw "Inno Setup compiler was not found." }
-          & $iscc.FullName "installer\ricodex.iss"
+          & $iscc.FullName "installer\HyperDexStudio.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
       - name: Upload Windows packages
         uses: actions/upload-artifact@v4
         with:
-          name: RicoDex-Windows-packages-${{ github.sha }}
+          name: HyperDexStudio-Windows-packages-${{ github.sha }}
           path: |
-            dist/RicoDex-Windows-x64.zip
-            dist/RicoDex-*-setup.exe
+            dist/HyperDexStudio-Windows-x64.zip
+            dist/HyperDexStudio-*-setup.exe
           if-no-files-found: error
           retention-days: 14

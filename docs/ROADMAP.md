@@ -1,6 +1,6 @@
-# RicoDex implementation roadmap
+# HyperDex Studio implementation roadmap
 
-This document is the execution plan and canonical continuation guide for RicoDex. It distinguishes verified implementation from intended behaviour. A feature is not complete because a type, shader, isolated test or button exists; it is complete when the user can perform the workflow end to end and the result is verified.
+This document is the execution plan and canonical continuation guide for HyperDex Studio. It distinguishes verified implementation from intended behaviour. A feature is not complete because a type, shader, isolated test or button exists; it is complete when the user can perform the workflow end to end and the result is verified.
 
 ## Instructions for future development sessions
 
@@ -8,7 +8,7 @@ This roadmap is the canonical continuation document for both contributors and ne
 
 ### Repository entry point and required reading
 
-Repository: https://github.com/StellarEVE/RicoDex
+Repository: https://github.com/StellarEVE/HyperDex
 
 Before changing code, read these documents from the current `main` branch:
 
@@ -44,7 +44,7 @@ If required repository write access, a Rust execution environment, a Windows wor
 - Every user edit must pass through a Core command using clone, validate, commit semantics and participate in undo/redo history where appropriate. UI widgets must not mutate project data directly.
 - All timeline positions, durations, overlap calculations and output-time mapping use integer `Tick` values at 254,016,000,000 ticks per second. Do not use floating-point seconds for edit or timeline arithmetic.
 - Derive output frame timestamps and frame counts from integer frame indices and the rational frame-rate numerator/denominator. Avoid cumulative rounded frame-duration addition.
-- Keep FFmpeg and codec-library access inside `ricodex-platform`. Other crates consume platform abstractions and must not directly call FFmpeg APIs.
+- Keep FFmpeg and codec-library access inside `hyperdex-platform`. Other crates consume platform abstractions and must not directly call FFmpeg APIs.
 - CPU composition is the correctness reference. GPU output must match it for supported operations; GPU availability must never be required for correctness.
 - Preserve established track ordering, hidden-track behaviour, disabled-item behaviour, gap handling, deterministic source-time mapping and soundtrack synchronization when changing the renderer.
 - Long-running work must use background jobs, bounded resources, accurate progress and real cancellation. Do not claim cancellation until active decoding/rendering/encoding actually stops.
@@ -59,11 +59,11 @@ This file defines the delivery sequence, acceptance criteria and durable enginee
 
 ## Product direction
 
-RicoDex is a local-first, music-intelligent video editor. Its defining workflow is:
+HyperDex is a local-first, music-intelligent video editor. Its defining workflow is:
 
 **Import media → understand the song and footage → generate an editable first cut → refine it on a timeline → export a synchronized video.**
 
-RicoDex is not intended to reproduce the entire feature surface of DaVinci Resolve or another professional NLE. It should make this narrower workflow dependable, fast, approachable and unusually good.
+HyperDex is not intended to reproduce the entire feature surface of DaVinci Resolve or another professional NLE. It should make this narrower workflow dependable, fast, approachable and unusually good.
 
 ## Existing foundation
 
@@ -82,7 +82,7 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 
 The latest fully verified end-to-end export implementation is commit 3bdd237 (Render visible video tracks in stacking order). Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This confirms the software build and package workflow, not physical desktop acceptance or hardware compatibility.
 
-The current main branch has the persisted schema-4 transition model and a transition-aware multi-track exporter. The schema-4 validation correction is commit `67ae474`, verified by complete Windows CI run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393). Documentation consolidation commit `4615e4d` passed complete Windows CI run [#89](https://github.com/StellarEVE/RicoDex/actions/runs/43561776169). The transition-mapping foundation at `fc0355b` passed its Windows workspace-test step; its release build was still running at the latest check. The exporter integration and MP4 tests are in the current implementation slice and require their own complete Windows CI run.
+The current main branch has the persisted schema-4 transition model and a transition-aware multi-track exporter. The schema-4 validation correction is commit `67ae474`, verified by complete Windows CI run [#85](https://github.com/StellarEVE/HyperDex/actions/runs/43560350393). Documentation consolidation commit `4615e4d` passed complete Windows CI run [#89](https://github.com/StellarEVE/HyperDex/actions/runs/43561776169). The transition-mapping foundation at `fc0355b` passed its Windows workspace-test step; its release build was still running at the latest check. The exporter integration and MP4 tests are in the current implementation slice and require their own complete Windows CI run.
 
 - A shared rational TimelineFrameSchedule calculates frame timestamps from an integer frame index and rational frame rate. It supports bounded absolute-time ranges and has tests for long-duration timestamp stability.
 - TimelineFrameSchedule::layers_at samples active enabled items across project tracks, maps each layer to source time, and skips hidden tracks and muted audio tracks.
@@ -121,7 +121,7 @@ Other existing application foundations:
 
 **Goal:** users can refine and preserve a generated cut without bypassing the Core model.
 
-- Route every edit through ricodex-core commands and History.
+- Route every edit through hyperdex-core commands and History.
 - Current Edit-page controls support source-in/duration trimming, midpoint splitting, ripple deletion, drag/reorder movement, pinning, undo and redo. Reordering compacts the video track into a contiguous cut. The UI does not yet provide freeform gap or transition editing, even though the export renderer can preserve gaps already represented in a project.
 - Preserve integer Tick values in the model; convert to seconds only at UI boundaries.
 - Make the current project model the timeline's source of truth after every accepted command.
@@ -179,7 +179,7 @@ The first data-model slice is on main: an incoming clip can persist a transition
 
 ### Phase 4: Hardware compatibility and performance
 
-**Goal:** hardware accelerates RicoDex when it works, but is never required for correctness.
+**Goal:** hardware accelerates HyperDex when it works, but is never required for correctness.
 
 - Keep the CPU compositor as the correctness reference and fallback.
 - Probe hardware decoding and encoding through real capability trials, not vendor assumptions.
@@ -217,7 +217,7 @@ The first data-model slice is on main: an incoming clip can persist a transition
 
 ## Explicit non-goals for the current product
 
-Do not spend early milestones attempting full professional-NLE parity. Defer node-based grading, a Fusion-scale compositor, multicamera editing, a DAW replacement, cloud collaboration, user accounts and a general-purpose plugin marketplace. Reopen these decisions only when they clearly support RicoDex's primary workflow.
+Do not spend early milestones attempting full professional-NLE parity. Defer node-based grading, a Fusion-scale compositor, multicamera editing, a DAW replacement, cloud collaboration, user accounts and a general-purpose plugin marketplace. Reopen these decisions only when they clearly support HyperDex's primary workflow.
 
 ## Engineering rules
 

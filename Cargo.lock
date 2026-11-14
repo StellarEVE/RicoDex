@@ -2953,39 +2953,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "ricodex-app"
+name = "hyperdex-app"
 version = "0.1.0-alpha.9"
 dependencies = [
  "eframe",
  "egui",
- "ricodex-audio",
- "ricodex-core",
- "ricodex-engine",
- "ricodex-media",
- "ricodex-render",
+ "hyperdex-audio",
+ "hyperdex-core",
+ "hyperdex-engine",
+ "hyperdex-media",
+ "hyperdex-render",
  "png",
  "rfd",
 ]
 
 [[package]]
-name = "ricodex-audio"
+name = "hyperdex-audio"
 version = "0.1.0-alpha.9"
 dependencies = [
  "num-complex",
- "ricodex-core",
+ "hyperdex-core",
  "realfft",
  "symphonia",
 ]
 
 [[package]]
-name = "ricodex-cli"
+name = "hyperdex-cli"
 version = "0.1.0-alpha.9"
 dependencies = [
- "ricodex-core",
+ "hyperdex-core",
 ]
 
 [[package]]
-name = "ricodex-core"
+name = "hyperdex-core"
 version = "0.1.0-alpha.9"
 dependencies = [
  "serde",
@@ -2993,39 +2993,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "ricodex-engine"
+name = "hyperdex-engine"
 version = "0.1.0-alpha.9"
 dependencies = [
- "ricodex-audio",
- "ricodex-core",
- "ricodex-media",
+ "hyperdex-audio",
+ "hyperdex-core",
+ "hyperdex-media",
 ]
 
 [[package]]
-name = "ricodex-media"
+name = "hyperdex-media"
 version = "0.1.0-alpha.9"
 dependencies = [
- "ricodex-core",
- "ricodex-platform",
+ "hyperdex-core",
+ "hyperdex-platform",
  "png",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "ricodex-platform"
+name = "hyperdex-platform"
 version = "0.1.0-alpha.9"
 dependencies = [
- "ricodex-core",
+ "hyperdex-core",
  "rsmpeg",
 ]
 
 [[package]]
-name = "ricodex-render"
+name = "hyperdex-render"
 version = "0.1.0-alpha.9"
 dependencies = [
- "ricodex-core",
- "ricodex-platform",
+ "hyperdex-core",
+ "hyperdex-platform",
  "pollster 0.3.0",
  "serde",
  "serde_json",

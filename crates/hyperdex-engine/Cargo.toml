@@ -1,0 +1,11 @@
+[package]
+name = "hyperdex-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HyperDex media analysis and cut planning engine"
+
+[dependencies]
+hyperdex-core = { path = "../hyperdex-core" }
+hyperdex-audio = { path = "../hyperdex-audio" }
+hyperdex-media = { path = "../hyperdex-media" }

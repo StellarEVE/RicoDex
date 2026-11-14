@@ -14,8 +14,8 @@ foreach ($file in $testFiles) {
     $source = Get-Content -LiteralPath $file.FullName -Raw
 
     if ($source -match '\blibx264\b') {
-        if ($source -notmatch 'RICODEX_TEST_FFMPEG') {
-            $problems += "$($file.FullName): references libx264 but does not use RICODEX_TEST_FFMPEG."
+        if ($source -notmatch 'HYPERDEX_TEST_FFMPEG') {
+            $problems += "$($file.FullName): references libx264 but does not use HYPERDEX_TEST_FFMPEG."
         }
 
         if ([regex]::IsMatch($source, 'Command::new\(\s*"ffmpeg(?:\.exe)?"\s*\)')) {

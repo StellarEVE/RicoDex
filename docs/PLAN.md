@@ -1,6 +1,6 @@
-# RicoDex product breakdown
+# HyperDex Studio product breakdown
 
-The original planning document intentionally used the unnamed label "the Program". RicoDex is the product name chosen after that document was written. The body below is retained as the owner's original specification.
+The original planning document intentionally used the unnamed label "the Program". HyperDex Studio is the product name chosen after that document was written. The body below is retained as the owner's original specification.
 
 ---
 
