@@ -8,7 +8,7 @@ RicoDex is an early-stage project, not a finished or production-ready editor. It
 
 ## Current project status
 
-The essential editing and project-persistence slice is implemented. The current Windows CI workflow has passed workspace tests, a release build, portable-package staging, and Inno Setup installer creation. CI verifies builds and automated tests; it does not replace interactive testing on a real Windows desktop.
+The essential editing and project-persistence slice is implemented. The previous verified Windows CI baseline passed workspace tests, a release build, portable-package staging, and Inno Setup installer creation. The current persisted-provenance and refinement changes are undergoing Windows CI validation. CI verifies builds and automated tests; it does not replace interactive testing on a real Windows desktop.
 
 The current app export path supports a selected-song soundtrack as stereo AAC alongside H.264 video for a contiguous hard-cut video sequence. The output-level integration test decodes the resulting MP4 and checks audio/video duration agreement and stereo channel separation.
 
