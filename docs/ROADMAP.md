@@ -149,7 +149,7 @@ Verified foundations:
 
 Remaining work, in implementation order:
 
-1. **Timeline audio placement and mixing.** Add editable audio items with Core commands, rational source-time mapping and multiple synchronized audio layers. Preserve the selected-song bed as a supported source. Add source-clip audio, per-item/track gain, fades and normalization incrementally, with MP4 decode tests for mix content and synchronization.
+1. **Timeline audio placement and mixing.** The Core foundation now validates asset/track-kind compatibility and creates tracks through an undoable `AddTrack` command. Next add Edit-page audio-track controls and validated audio-item placement through Core commands, then decode and mix multiple synchronized stereo audio layers. Preserve the selected-song bed as a supported source. Add source-clip audio, per-item/track gain, fades and normalization incrementally, with MP4 decode tests for mix content and synchronization.
 2. **Preview/export parity.** Drive preview playback and final output from the same schedule, source-time mapping, track composition, transition and audio rules. Preserve a correct software path and bounded render work.
 3. **Full-timeline effects.** Apply per-clip and track-level effects through the same pipeline used by preview and export.
 4. **Export finalization and cancellation.** Write to a temporary destination and atomically finalize on success; implement true cancellation during decoding/rendering/encoding, accurate progress and useful errors.
@@ -253,3 +253,12 @@ The renderer now has a pure, decoder-independent `TimelineTransitionMap` foundat
 - The output schedule is derived from the compressed Tick range using the existing rational frame-rate scheduler. No per-frame rounded durations are accumulated.
 
 The time model is consumed by the app-driven exporter. Each transition track is decoded with independent outgoing and incoming readers, and its blended frame is inserted into the project's normal bottom-to-top track stack. Other tracks use the same compressed source-time map. The selected-song AAC path uses output frame count, so audio remains synchronized and does not change playback speed. MP4 integration tests cover a two-clip dissolve, an upper video layer over a transition, sequential non-overlapping transitions, compressed frame count and stereo AAC synchronization. The Edit inspector exposes transition type, duration and clear controls through Core commands; AppState coverage verifies changes and undo/redo. The exporter and UI slices must both pass their exact Windows runs before Phase 2.2 is marked complete.
+
+
+### Phase 2.3 implementation progress: audio-track Core foundation
+
+The Core model enforces track and asset compatibility: Audio tracks accept Audio assets only, and Video tracks accept Video assets only. Invalid placements fail project validation and cannot be committed through command history or saved as a valid project.
+
+Track creation is represented by `Command::AddTrack`. It creates the track and corresponding empty item group as one atomic Core edit, participates in snapshot undo/redo, and relies on normal project validation to reject duplicate track IDs. Tests cover valid and invalid asset/track combinations, AddTrack undo/redo, and duplicate-ID rejection.
+
+This is only the model foundation. Audio-item placement UI, stereo clip decoding, multiple-source mixing, mute/hidden/disabled behaviour in the mix, and MP4 integration tests remain to be implemented. Do not describe timeline audio mixing as supported yet.

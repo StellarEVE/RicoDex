@@ -399,6 +399,22 @@ impl Project {
                     });
                 }
                 if let Some(asset) = self.assets.iter().find(|asset| asset.id == item.asset_id) {
+                    let track = self.track(group.track_id)
+                        .expect("track item group was checked above");
+                    let kind_matches = match track.kind {
+                        TrackKind::Video => asset.kind == AssetKind::Video,
+                        TrackKind::Audio => asset.kind == AssetKind::Audio,
+                    };
+                    if !kind_matches {
+                        return Err(ModelError::ItemAssetKindMismatch {
+                            item_id: item.id,
+                            track_id: group.track_id,
+                            asset_id: item.asset_id,
+                            track_kind: track.kind,
+                            asset_kind: asset.kind,
+                        });
+                    }
+
                     if asset.duration > Tick::ZERO {
                         let source_end = asset.duration - asset.outro_trim;
                         if item.source_in < asset.intro_trim
@@ -501,6 +517,13 @@ pub enum ModelError {
     NegativeStart { id: ItemId },
     NegativeSourceIn { id: ItemId },
     UnknownAsset { item_id: ItemId, asset_id: AssetId },
+    ItemAssetKindMismatch {
+        item_id: ItemId,
+        track_id: TrackId,
+        asset_id: AssetId,
+        track_kind: TrackKind,
+        asset_kind: AssetKind,
+    },
     ItemsNotSorted { track_id: TrackId },
     ItemsOverlap { track_id: TrackId, first: ItemId, second: ItemId },
     TransitionOnNonVideoTrack { item_id: ItemId, track_id: TrackId },
@@ -537,6 +560,16 @@ impl std::fmt::Display for ModelError {
             ModelError::UnknownAsset { item_id, asset_id } => {
                 write!(f, "item {item_id} points at unknown asset {asset_id}")
             }
+            ModelError::ItemAssetKindMismatch {
+                item_id,
+                track_id,
+                asset_id,
+                track_kind,
+                asset_kind,
+            } => write!(
+                f,
+                "item {item_id} uses {asset_kind:?} asset {asset_id} on {track_kind:?} track {track_id}"
+            ),
             ModelError::ItemsNotSorted { track_id } => {
                 write!(f, "items on track {track_id} are not sorted by start")
             }

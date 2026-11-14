@@ -5,13 +5,15 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Item, ItemId, ItemProvenance, ItemTransition, ModelError, Project, TrackId};
+use crate::model::{Item, ItemId, ItemProvenance, ItemTransition, ModelError, Project, Track, TrackId};
 use crate::time::Tick;
 
 /// One user edit, expressed as data so every front end (app, CLI, and any
 /// future driver) performs edits in exactly the same way.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Command {
+    /// Create a track and its corresponding empty item group.
+    AddTrack { track: Track },
     /// Insert an item onto a track. The item group is kept sorted by start.
     InsertItem { track_id: TrackId, item: Item },
     /// Remove an item and ripple later items on its track left by its duration.
@@ -124,6 +126,10 @@ impl Project {
 
     fn apply_in_place(&mut self, command: &Command) -> Result<(), CommandError> {
         match command {
+            Command::AddTrack { track } => {
+                self.add_track(track.clone());
+                Ok(())
+            }
             Command::InsertItem { track_id, item } => {
                 let track = self
                     .track(*track_id)
@@ -462,6 +468,37 @@ mod tests {
         ));
         project.validate().unwrap();
         project
+    }
+
+    #[test]
+    fn add_track_creates_an_empty_group_and_participates_in_history() {
+        let mut history = History::new(project_with_one_clip());
+        history.apply(&Command::AddTrack {
+            track: Track::new(2, TrackKind::Audio, "A1"),
+        }).unwrap();
+
+        assert_eq!(history.project().track(2).unwrap().kind, TrackKind::Audio);
+        assert!(history.project().items(2).unwrap().is_empty());
+        assert!(history.undo());
+        assert!(history.project().track(2).is_none());
+        assert!(history.project().items(2).is_none());
+        assert!(history.redo());
+        assert_eq!(history.project().track(2).unwrap().name, "A1");
+        assert!(history.project().items(2).unwrap().is_empty());
+    }
+
+    #[test]
+    fn add_duplicate_track_is_rejected_without_mutating_the_project() {
+        let project = project_with_one_clip();
+        let (unchanged, error) = project.clone().apply(&Command::AddTrack {
+            track: Track::new(1, TrackKind::Audio, "A1"),
+        }).unwrap_err();
+
+        assert_eq!(unchanged, project);
+        assert_eq!(
+            error,
+            CommandError::Invalid(ModelError::DuplicateTrackId { id: 1 })
+        );
     }
 
     #[test]

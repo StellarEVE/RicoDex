@@ -3,8 +3,8 @@
 **Status date:** 14 November 2026  
 **Repository:** https://github.com/StellarEVE/RicoDex  
 **Working branch:** `main`  
-**Current code head at the time this document was prepared:** `fd24f400111ab63a4e211ab789e7163cf1cfebf7`  
-**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393). Documentation consolidation passed the complete pipeline in run [#89](https://github.com/StellarEVE/RicoDex/actions/runs/43561776169). Transition-mapping run [#90](https://github.com/StellarEVE/RicoDex/actions/runs/43564641742) has passed workspace tests, release build, runtime staging and portable ZIP creation; installer compilation was still running at the latest check. Exporter integration run [#91](https://github.com/StellarEVE/RicoDex/actions/runs/43565688966) passed workspace tests; its release build was still running. Edit-page transition controls and AppState tests are in the current code slice and await run #92.
+**Last committed base before the current audio-track Core slice:** `e1db672cbfebbb7031a9db29f79fe1873f85bc07`  
+**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393). Documentation consolidation passed the complete pipeline in run [#89](https://github.com/StellarEVE/RicoDex/actions/runs/43561776169). Transition mapping passed the complete Windows pipeline in run [#90](https://github.com/StellarEVE/RicoDex/actions/runs/43564641742). Exporter integration run [#91](https://github.com/StellarEVE/RicoDex/actions/runs/43565688966) passed workspace tests; release compilation remained active at the latest check. Edit-page controls run [#92](https://github.com/StellarEVE/RicoDex/actions/runs/43566269122) remained in workspace tests at the latest check. The current audio-track Core slice is not fully verified until its exact Windows workflow completes.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
@@ -30,6 +30,8 @@ The workspace is Rust and currently targets Windows. It contains eight crates:
 ### Project and edit model
 
 - Project data is validated by Core and persisted as readable JSON.
+- Core validates track and asset kinds: Audio tracks contain Audio assets; Video tracks contain Video assets.
+- Track creation uses `Command::AddTrack`, creates its item group atomically and participates in undo/redo.
 - Time positions and durations use integer ticks at 254,016,000,000 ticks per second.
 - Edit commands use clone, validate, commit semantics; accepted edits participate in snapshot undo/redo.
 - Save, Save As, Open, backup creation and fingerprint-based media relinking are integrated in the desktop app.
@@ -75,7 +77,7 @@ The following remain planned or incomplete. Do not describe them as supported en
 
 - Preview playback driven by the same timeline schedule and renderer as export.
 - Preview playback driven by the same timeline schedule and renderer as export.
-- Timeline audio items and arbitrary audio-track placement.
+- Timeline audio-item placement and mixing. The Core model now supports validated Audio tracks and an undoable AddTrack command, but the app does not yet expose audio-item placement or mix audio-track items during export.
 - Audio captured from source video clips.
 - Mixing of multiple audio sources, per-clip/per-track gain, fades and loudness normalization.
 - Per-clip and track-level full-timeline effects.
@@ -100,8 +102,10 @@ The current Edit UI remains a small single-video-track editing surface. The rend
 
 ## 6. Recommended next implementation sequence
 
-1. Complete Windows CI runs #90, #91 and #92, diagnosing any failing test or packaging step before continuing.
-2. Once Phase 2.2 export and Edit controls are green, begin timeline audio-item placement and mixing with Core commands and deterministic MP4 audio tests.
+1. Complete Windows CI runs #91 and #92, diagnosing any failing test or packaging step before treating Phase 2.2 as verified.
+2. Add Edit-page audio-track creation and audio-item placement through Core commands, with AppState/UI tests.
+3. Integrate decoded stereo audio-item mixing into MP4 export, honoring hidden tracks, muted tracks and disabled items; verify the resulting AAC stream by decoding the exported MP4.
+4. Continue with source-video audio, gain/fades and normalization only after placed-audio mixing is end-to-end verified.
 
 Avoid beginning preview parity or cache redesign until the timeline transition interpretation is stable. Do not introduce simultaneous transition overlaps across different video tracks without an explicit compositing and timeline-mapping design.
 

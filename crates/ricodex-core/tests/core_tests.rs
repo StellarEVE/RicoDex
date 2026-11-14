@@ -99,6 +99,50 @@ fn valid_project_passes_validation() {
 }
 
 #[test]
+fn audio_tracks_accept_only_audio_assets() {
+    let mut project = sample_project();
+    let mut song = sample_asset(3);
+    song.kind = AssetKind::Audio;
+    project.assets.push(song);
+    project.add_track(Track::new(11, TrackKind::Audio, "A1"));
+    project.items_mut(11).unwrap().push(Item::new(
+        200, 3, Tick::ZERO, Tick::from_seconds(8.0), Tick::ZERO,
+    ));
+    assert!(project.validate().is_ok());
+
+    project.items_mut(11).unwrap()[0].asset_id = 1;
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::ItemAssetKindMismatch {
+            item_id: 200,
+            track_id: 11,
+            asset_id: 1,
+            track_kind: TrackKind::Audio,
+            asset_kind: AssetKind::Video,
+        })
+    );
+}
+
+#[test]
+fn video_tracks_reject_audio_assets() {
+    let mut project = sample_project();
+    let mut song = sample_asset(3);
+    song.kind = AssetKind::Audio;
+    project.assets.push(song);
+    project.items_mut(10).unwrap()[0].asset_id = 3;
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::ItemAssetKindMismatch {
+            item_id: 100,
+            track_id: 10,
+            asset_id: 3,
+            track_kind: TrackKind::Video,
+            asset_kind: AssetKind::Audio,
+        })
+    );
+}
+
+#[test]
 fn duplicate_item_id_rejected() {
     let mut project = sample_project();
     project.items_mut(10).unwrap()[1].id = 100;
