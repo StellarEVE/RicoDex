@@ -16,6 +16,41 @@ use crate::error::RenderError;
 use crate::frame::{lerp, round_u8, sample_bilinear, Frame};
 use crate::transition::{TransitionKind, TransitionParams};
 
+
+/// Composite video layers from bottom to top over an opaque black canvas.
+///
+/// Later entries are visually above earlier entries. Source pixels use
+/// straight alpha; the output is always opaque because it is composited
+/// over the black export canvas.
+pub fn composite_video_layers(
+    width: u32,
+    height: u32,
+    layers: &[Frame],
+) -> Result<Frame, RenderError> {
+    let mut output = Frame::solid(width, height, [0, 0, 0, 255]);
+    for layer in layers {
+        if layer.width != width || layer.height != height {
+            return Err(RenderError::SizeMismatch {
+                a: (width, height),
+                b: (layer.width, layer.height),
+            });
+        }
+        for (dst, src) in output
+            .pixels
+            .chunks_exact_mut(4)
+            .zip(layer.pixels.chunks_exact(4))
+        {
+            let alpha = src[3] as f32 / 255.0;
+            let inverse = 1.0 - alpha;
+            for channel in 0..3 {
+                dst[channel] = round_u8(src[channel] as f32 * alpha + dst[channel] as f32 * inverse);
+            }
+            dst[3] = 255;
+        }
+    }
+    Ok(output)
+}
+
 /// Composite one output frame from input frames `a` (outgoing) and
 /// `b` (incoming) at `progress`. Both frames must share dimensions.
 pub fn composite_cpu(
