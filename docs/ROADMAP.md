@@ -25,21 +25,24 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 
 ### Current verified implementation checkpoint (14 November 2026)
 
-The latest multi-track export implementation is commit 3bdd237 (Render visible video tracks in stacking order). Windows CI run #81 passed the full workspace test suite, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This confirms the software build and package workflow, not physical desktop acceptance or hardware compatibility.
+The latest fully verified end-to-end export implementation is commit 3bdd237 (Render visible video tracks in stacking order). Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This confirms the software build and package workflow, not physical desktop acceptance or hardware compatibility.
+
+The current main branch has since added a persisted transition model in schema 4. The latest validation-order correction is commit 67ae474; Windows CI run #85 is currently validating that change. Do not treat the schema-4 transition model as fully verified or as rendered in app exports until the current CI run passes and renderer integration is complete.
 
 - A shared rational TimelineFrameSchedule calculates frame timestamps from an integer frame index and rational frame rate. It supports bounded absolute-time ranges and has tests for long-duration timestamp stability.
 - TimelineFrameSchedule::layers_at samples active enabled items across project tracks, maps each layer to source time, and skips hidden tracks and muted audio tracks.
-- The app-driven exporter now renders enabled clips across every visible video track in project track order, with later tracks above earlier tracks. It composites active frames with source-over alpha. A gap or disabled clip on an upper track reveals lower tracks; black is emitted only when no visible video layer is active. MP4 integration tests cover stacking order, hidden tracks, disabled upper clips, gaps and the selected-song soundtrack.
+- The app-driven exporter renders enabled clips across every visible video track in project track order, with later tracks above earlier tracks. It composites active frames with source-over alpha. A gap or disabled clip on an upper track reveals lower tracks; black is emitted only when no visible video layer is active. MP4 integration tests cover stacking order, hidden tracks, disabled upper clips, gaps and the selected-song soundtrack.
 - The exporter preserves ordinary gaps and disabled-clip intervals on each track. Same-track items remain non-overlapping in the Core model.
 - The selected-song soundtrack is muxed as stereo AAC, resampled to 48 kHz and synchronized to the output frame count. Tests decode the resulting MP4 and check audio duration and stereo channel separation.
-- A separate render_project path still handles exactly two video items with one transition, a request-level effect stack and an optional transition-region render cache. This path is not yet integrated into the app-driven multi-track timeline export.
-- Preview playback using the same scheduler/compositor, full-timeline transitions, timeline audio-item placement, clip-source audio, gain/fades, normalization, full-timeline effects, atomic output finalization and true mid-render cancellation remain incomplete.
+- Core schema 4 adds an optional incoming transition to each timeline item. The transition stores its kind, parameters and duration, is set through an undoable Core command, and is validated against adjacent items on the same video track. Schemas 1–3 migrate without inventing transitions. Schema-1/2 provenance and pin protection remain preserved; schema-3 provenance and pin state are retained by the schema-4 migration.
+- The transition model is currently a persistence and validation foundation only. The existing render_project path still handles exactly two video items with one transition, a request-level effect stack and an optional transition-region render cache. It is not integrated into app-driven multi-track timeline export, and the main Edit UI has no transition editing control yet.
+- Preview playback using the same scheduler/compositor, full-timeline transition rendering, timeline audio-item placement, clip-source audio, gain/fades, normalization, full-timeline effects, atomic output finalization and true mid-render cancellation remain incomplete.
 
 Other existing application foundations:
 
 - The Edit page supports source/duration trimming, splitting, ripple deletion, drag-to-reorder, pinning and undo/redo through Core commands and History. It remains a deliberately small single-track editing surface. The current reorder workflow compacts items into a contiguous cut; there is not yet a freeform gap or transition editing workflow in the UI.
 - Planner analysis uses coordinates relative to the user-selected source-trim window; installed timeline items are converted back to absolute original-media time. Core validation rejects items outside the usable source window, and source trim settings lock once a timeline exists.
-- Application-level Save, Save As and Open are integrated with versioned Core JSON persistence. Schema 3 persists per-clip generated/manual provenance and pin state; schema-1/2 timelines migrate conservatively with existing clips marked manual and pinned. Media relinking verifies saved fingerprints; a project without a fingerprint can enroll one only from its original saved path, not from an arbitrary moved replacement. Pinned clips are carried into the next planner refinement; unpinned generated slots can be reconsidered after more media is imported.
+- Application-level Save, Save As and Open are integrated with versioned Core JSON persistence. Schema 3 added per-clip generated/manual provenance and pin state; schema 4 adds optional per-item incoming transition metadata. Schema-1/2 timelines migrate conservatively with existing clips marked manual and pinned; schema 3 keeps its provenance and pin state when migrating to schema 4. Media relinking verifies saved fingerprints; a project without a fingerprint can enroll one only from its original saved path, not from an arbitrary moved replacement. Pinned clips are carried into the next planner refinement; unpinned generated slots can be reconsidered after more media is imported.
 - The render cache currently supports transition-region reuse in the narrow two-clip render path. End-to-end cache sharing and invalidation for preview and full-timeline export remain outstanding.
 - Windows hardware behaviour must be verified on actual machines. The application defaults to OpenGL for startup compatibility; the wgpu renderer is an explicit opt-in until broader Windows validation exists.
 - FFmpeg and bundled transitive-library licensing must be reviewed before public binary distribution.
@@ -70,7 +73,7 @@ Other existing application foundations:
 - Prevent invalid edits from partially mutating project state.
 - Preserve generated-clip pinning and clearly report rejected edits.
 - Provide application-level Save, Save As and Open controls backed by Core's atomic JSON persistence and backup file.
-- Persist selected-song identity and per-asset intro/outro trims in project schema 2; schema 3 additionally persists clip provenance and pin state. Migrate schema-1/2 timelines conservatively, preserving old clips as manual and pinned when their origin is unknown.
+- Persist selected-song identity and per-asset intro/outro trims in project schema 2; schema 3 additionally persists clip provenance and pin state; schema 4 adds optional incoming transition metadata to items. Migrate schema-1/2 timelines conservatively, preserving old clips as manual and pinned when their origin is unknown.
 - Keep item source positions in absolute original-media coordinates. Convert the planner's trimmed-window offsets at plan installation, validate every item against the asset's usable trimmed range, and lock source-trim controls after a timeline exists.
 - Rebuild the Media pool when reopening a project and verify every available source against its saved content fingerprint. Restore clip provenance and pins from the project. Existing manual/pinned clips are kept during refinement, while unpinned generated clips can be reconsidered after more media is imported.
 - Provide a Locate flow for missing/moved files. Accept a moved replacement only when its fingerprint matches the saved asset. When no fingerprint was saved, allow fingerprint enrollment from the original stored path only; never silently adopt a different file.
@@ -85,13 +88,13 @@ Other existing application foundations:
 Verified foundations:
 
 - A rational frame schedule is shared by the sequential exporter and the timeline sampling API. Frame times are calculated from integer frame indices and a rational frame rate rather than accumulated floating-point frame durations.
-- The app-driven exporter handles multiple clips on one video track, hard cuts, ordinary gaps and gaps left by disabled clips. Uncovered frames are encoded as black. Regression tests cover both ordinary and disabled-clip gaps.
+- The app-driven exporter handles multiple clips across visible video tracks, hard cuts, ordinary gaps and gaps left by disabled clips. Track order is bottom-to-top; upper-track gaps reveal lower tracks, and uncovered frames are encoded as black. Windows CI run #81 passed the multi-track MP4 integration tests and full packaging pipeline.
 - The selected-song soundtrack can be encoded as stereo AAC alongside the video, with output-level tests for duration and channel separation.
-- A separate two-item transition/effect rendering path and transition-region cache exist, but they are not yet part of the full-timeline app export.
+- The two-item transition/effect rendering path and transition-region cache exist, but are not yet part of full-timeline app export. Schema 4 now persists an incoming transition choice on an item with Core validation and an undoable command; its latest validation correction is awaiting Windows CI run #85.
 
 Remaining work, in implementation order:
 
-1. **Full-timeline transitions.** Persist each incoming clip's transition choice, validate that it connects adjacent clips on one video track, and render it in the multi-track timeline path. The initial implementation should define clear overlap and duration semantics and reject ambiguous overlapping transition regions.
+1. **Full-timeline transitions.** The persisted transition metadata, backward-compatible schema-4 migration, validation and undoable command are implemented on main; the latest validation-order correction is being checked by CI run #85. Still integrate transition rendering into the multi-track timeline path, define exact output-time compression semantics, and reject ambiguous overlapping transition regions. The Edit UI must eventually expose this metadata through Core commands.
 2. **Timeline audio mixing.** Add placed audio items and clip-source audio, then support synchronized mixing, gain, fades and normalization. Preserve the existing selected-song bed as one supported audio source.
 3. **Preview/export parity.** Drive preview playback and final export from the same schedule, source-time mapping, track composition, transition and audio rules.
 4. **Full-timeline effects.** Apply per-clip and track-level effects through the same pipeline used by preview and export.
@@ -101,9 +104,9 @@ Keep the first supported output matrix deliberately small and testable, such as 
 
 **Completed implementation stage: Phase 2.1, multi-track video composition.** The app-driven exporter now composites all visible video tracks in project order. Windows CI run #81 passed workspace tests and the complete packaging pipeline.
 
-**Next implementation stage: Phase 2.2, full-timeline transitions.**
+**Current implementation stage: Phase 2.2, full-timeline transitions.**
 
-Add a persisted transition model to Core with backward-compatible project migration. Attach a transition to the incoming clip at an adjacent cut, define the output-time compression semantics for the overlap, then integrate the existing CPU transition compositor into the multi-track exporter. Acceptance tests should cover a two-clip dissolve, a transition with a lower video track underneath, multiple sequential transitions where their regions do not overlap, disabled/hidden-track behaviour, duration/frame-count reduction, and soundtrack synchronization. Reject transition regions that overlap in project time until simultaneous cross-track transitions have an explicit compositing model.
+The first data-model slice is on main: an incoming clip can persist a transition kind, parameters and duration; Core validates the adjacent cut and duration constraints; `SetItemTransition` participates in undo/redo; and schema 1–3 projects migrate with no transition silently added. Windows CI run #85 is checking the latest validation correction. The remaining implementation is to define output-time compression semantics, integrate the CPU transition compositor into the multi-track exporter, then add UI controls. Acceptance tests should cover a two-clip dissolve, a transition with a lower video track underneath, multiple sequential transitions where their regions do not overlap, disabled/hidden-track behaviour, duration/frame-count reduction, and soundtrack synchronization. Reject transition regions that overlap in project time until simultaneous cross-track transitions have an explicit compositing model.
 
 **Phase 2 exit gate:** a representative multi-track project with gaps, transitions and synchronized audio previews and exports with matching timing and content.
 
@@ -175,8 +178,9 @@ Do not spend early milestones attempting full professional-NLE parity. Defer nod
 
 ## Current release gates
 
-- [x] Current main commit passes Windows workspace tests, including schema-3 migration and persisted-provenance refinement tests (CI run #76).
-- [x] Windows release build, runtime dependency staging, portable ZIP and installer packaging pass in CI run #76.
+- [x] Multi-track export commit passes Windows workspace tests, release build, runtime dependency staging, portable ZIP and installer packaging (CI run #81).
+- [ ] Schema-4 incoming-transition model and validation-order correction pass Windows CI (run #85 currently in progress).
+- [x] Windows package staging, portable ZIP and installer creation pass for the verified multi-track export commit (CI run #81).
 - [ ] Application launches on a clean Windows machine using the default renderer.
 - [ ] Import, analyze, edit, save, reopen and export smoke test passes.
 - [ ] FFmpeg and bundled transitive-library licensing review is complete before public binary distribution.

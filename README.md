@@ -8,11 +8,11 @@ RicoDex is an early-stage project, not a finished or production-ready editor. It
 
 ## Current project status
 
-The essential editing and project-persistence slice is implemented. The previous verified Windows CI baseline passed workspace tests, a release build, portable-package staging, and Inno Setup installer creation. The current persisted-provenance and refinement changes are undergoing Windows CI validation. CI verifies builds and automated tests; it does not replace interactive testing on a real Windows desktop.
+RicoDex has a working local-first analysis, editing, project-persistence and export foundation. The latest verified export milestone is multi-track video composition: Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, and Inno Setup packaging. The app-driven exporter composes visible video tracks in project order, preserves gaps, reveals lower tracks through upper-track gaps, and can mux the selected song as stereo AAC. CI verifies automated behaviour and packaging; it does not replace interactive testing on a real Windows desktop.
 
-The current app export path supports a selected-song soundtrack as stereo AAC alongside H.264 video for a contiguous hard-cut video sequence. The output-level integration test decodes the resulting MP4 and checks audio/video duration agreement and stereo channel separation.
+The current main branch also contains the first persisted transition-model slice. Project schema 4 stores an optional transition on each incoming clip, provides an undoable Core command, and validates adjacent items and transition durations. The latest validation-order correction is commit 67ae474 and Windows CI run #85 is in progress. The transition metadata is not yet consumed by the app-driven multi-track renderer, and the main Edit UI does not yet expose transition controls.
 
-The current project schema is version 3 and persists clip provenance and pin state. Schema-1/2 projects migrate with existing clips marked manual and pinned because their original provenance is unknown. The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review are still outstanding. Do not treat an Actions artifact as a public release.
+The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
 
 ## Implemented workflow
 
@@ -46,7 +46,8 @@ Schema-1 and schema-2 projects predate persisted provenance. Their existing clip
 
 ### Export
 
-- Export an enabled, contiguous video sequence to MP4 using H.264 video and hard cuts.
+- Export enabled clips across visible video tracks to MP4 using H.264 video and hard cuts. Tracks composite in project order, with later tracks above earlier tracks.
+- Preserve timeline gaps. A gap or disabled clip on an upper video track reveals active lower tracks; areas with no active visible video layer render black.
 - When a song is selected, mux it as stereo AAC at 48 kHz, starting at output time zero.
 - Fit the soundtrack to the encoded video frame schedule: truncate longer audio or pad shorter audio with silence.
 - Without a selected song, the current app export path is video-only.
@@ -60,7 +61,7 @@ The following are not yet supported by the app's full sequential export workflow
 - Audio captured from source video clips.
 - Timeline audio tracks or arbitrary audio-item placement.
 - Per-track or per-clip gain, fades, and loudness normalization.
-- Timeline gaps and transitions in the sequential app exporter.
+- Full-timeline transition rendering. Transition metadata is now persisted in schema 4, but it is not yet integrated into app export or exposed in the Edit UI.
 - Consistent frame scheduling and behaviour between interactive preview and final export.
 - Cancellation during an active encode and atomic temporary-output finalization.
 - Manual clips can be explicitly unpinned to allow planner refinement; older projects migrate conservatively and require deliberate unpinning where regeneration is desired.
@@ -143,6 +144,8 @@ These packages are experimental CI validation artifacts, not approved public red
 
 - [Product plan](docs/PLAN.md)
 - [Implementation roadmap and current gaps](docs/ROADMAP.md)
+- [Development status and verified capabilities](docs/DEVELOPMENT_STATUS.md)
+- [New-chat handoff prompt](docs/NEW_CHAT_HANDOFF.md)
 - [Windows desktop acceptance checklist](docs/WINDOWS_SMOKE_TEST.md)
 - [Licensing and binary distribution](docs/LICENSING.md)
 - [Initial foundation migration notes](RELEASE_NOTES.md)
