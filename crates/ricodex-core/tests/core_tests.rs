@@ -1,5 +1,5 @@
 use ricodex_core::{
-    Asset, AssetKind, ClipTransition, Command, Fingerprint, History, Item, ItemProvenance,
+    Asset, AssetKind, ItemTransition, Command, Fingerprint, History, Item, ItemProvenance,
     ModelError, Project, Tick, Track, TrackKind, TransitionKind, TransitionParams, TICKS_PER_SECOND,
 };
 
@@ -452,7 +452,7 @@ fn schema_three_projects_migrate_without_losing_provenance_or_pins() {
 
 #[test]
 fn item_transition_round_trips_and_is_undoable() {
-    let transition = ClipTransition {
+    let transition = ItemTransition {
         kind: TransitionKind::CrossDissolve,
         params: TransitionParams::default(),
         duration: Tick::from_seconds(0.5),
@@ -476,7 +476,7 @@ fn item_transition_round_trips_and_is_undoable() {
 
 #[test]
 fn transition_requires_adjacent_video_items_and_valid_duration() {
-    let transition = ClipTransition {
+    let transition = ItemTransition {
         kind: TransitionKind::CrossDissolve,
         params: TransitionParams::default(),
         duration: Tick::from_seconds(0.5),
@@ -493,7 +493,7 @@ fn transition_requires_adjacent_video_items_and_valid_duration() {
     ));
 
     let mut too_long = project.clone();
-    too_long.items_mut(10).unwrap()[1].transition_in = Some(ClipTransition {
+    too_long.items_mut(10).unwrap()[1].transition_in = Some(ItemTransition {
         duration: Tick::from_seconds(2.0),
         ..transition
     });
@@ -516,7 +516,7 @@ fn transitions_at_both_ends_cannot_consume_an_entire_clip() {
     project.items_mut(10).unwrap()[0].duration = Tick::from_seconds(2.0);
     project.items_mut(10).unwrap()[1].start = Tick::from_seconds(2.0);
     project.items_mut(10).unwrap()[1].duration = Tick::from_seconds(3.0);
-    project.items_mut(10).unwrap()[1].transition_in = Some(ClipTransition {
+    project.items_mut(10).unwrap()[1].transition_in = Some(ItemTransition {
         kind: TransitionKind::CrossDissolve,
         params: TransitionParams::default(),
         duration: Tick::from_seconds(1.5),
@@ -524,7 +524,7 @@ fn transitions_at_both_ends_cannot_consume_an_entire_clip() {
     project.items_mut(10).unwrap().push(Item::new(
         102, 1, Tick::from_seconds(5.0), Tick::from_seconds(2.0), Tick::from_seconds(10.0),
     ));
-    project.items_mut(10).unwrap()[2].transition_in = Some(ClipTransition {
+    project.items_mut(10).unwrap()[2].transition_in = Some(ItemTransition {
         kind: TransitionKind::CrossDissolve,
         params: TransitionParams::default(),
         duration: Tick::from_seconds(1.5),
