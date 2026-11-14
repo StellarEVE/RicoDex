@@ -778,24 +778,42 @@ impl AppState {
         } else {
             let clips: Vec<PlannedClip> = current_items
                 .iter()
-                .map(|item| PlannedClip {
-                    item_id: item.id,
-                    asset_id: item.asset_id,
-                    start: item.start,
-                    duration: item.duration,
-                    source_in: item.source_in,
-                    state: if item.pinned {
-                        ClipState::Settled
-                    } else {
-                        ClipState::Provisional
-                    },
+                .map(|item| {
+                    // Saved timeline positions are absolute in the original
+                    // media. Planner sources are relative to the trimmed window.
+                    let intro = self.project.assets
+                        .iter()
+                        .find(|asset| asset.id == item.asset_id)
+                        .map(|asset| asset.intro_trim)
+                        .unwrap_or(Tick::ZERO);
+                    PlannedClip {
+                        item_id: item.id,
+                        asset_id: item.asset_id,
+                        start: item.start,
+                        duration: item.duration,
+                        source_in: item.source_in - intro,
+                        state: if item.pinned {
+                            ClipState::Settled
+                        } else {
+                            ClipState::Provisional
+                        },
+                    }
                 })
                 .collect();
             let commands = current_items
                 .iter()
-                .map(|item| Command::InsertItem {
-                    track_id: VIDEO_TRACK_ID,
-                    item: item.clone(),
+                .map(|item| {
+                    let mut planner_item = item.clone();
+                    let intro = self.project.assets
+                        .iter()
+                        .find(|asset| asset.id == item.asset_id)
+                        .map(|asset| asset.intro_trim)
+                        .unwrap_or(Tick::ZERO);
+                    planner_item.source_in = planner_item.source_in - intro;
+                    Command::InsertItem {
+                        track_id: VIDEO_TRACK_ID,
+                        item: planner_item,
+                    }
                 })
                 .collect();
             Some(Plan {
@@ -1059,12 +1077,12 @@ impl AppState {
             }
         }
 
-        let previous_metadata: HashMap<ItemId, (ItemProvenance, bool)> = self
+        let previous_metadata: HashMap<ItemId, (ItemProvenance, bool, bool)> = self
             .project
             .items(VIDEO_TRACK_ID)
             .into_iter()
             .flatten()
-            .map(|item| (item.id, (item.provenance, item.pinned)))
+            .map(|item| (item.id, (item.provenance, item.pinned, item.enabled)))
             .collect();
         let mut base = self.project.clone();
         if let Some(items) = base.items_mut(VIDEO_TRACK_ID) {
@@ -1074,9 +1092,10 @@ impl AppState {
             Ok(mut project) => {
                 if let Some(items) = project.items_mut(VIDEO_TRACK_ID) {
                     for item in items {
-                        if let Some((provenance, pinned)) = previous_metadata.get(&item.id) {
+                        if let Some((provenance, pinned, enabled)) = previous_metadata.get(&item.id) {
                             item.provenance = *provenance;
                             item.pinned = *pinned;
+                            item.enabled = *enabled;
                         }
                     }
                 }
@@ -1140,7 +1159,7 @@ impl AppState {
         if let Command::InsertItem { item, .. } = command {
             // Explicit app-level inserts are user content, not planner output.
             self.history
-                .apply(&Command::SetItemPinned { item_id: item.id, pinned: true })
+                .apply(&Command::MarkItemManual { item_id: item.id })
                 .map_err(|error| error.to_string())?;
         }
         self.project = self.history.project().clone();
