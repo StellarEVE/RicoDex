@@ -33,7 +33,7 @@ use crate::error::RenderError;
 use crate::frame::Frame;
 use crate::gpu::GpuCompositor;
 use crate::transition::{TransitionKind, TransitionParams};
-use crate::timeline::TimelineFrameSchedule;
+use crate::timeline::{TimelineTransitionMap, TimelineTransitionSegment};
 
 /// Stereo source audio supplied to the sequential export. Samples are
 /// interleaved left/right f32 values at the source sample rate.
@@ -383,6 +383,20 @@ impl TrackVideoReader {
         })
     }
 
+    /// Construct an independent reader for one enabled item. Transition
+    /// rendering needs two simultaneous source timestamps at the same output
+    /// instant, so it must not seek one stateful track reader backwards.
+    fn for_item(project: &Project, track_id: TrackId, item_id: u64) -> Result<Self, RenderError> {
+        let mut reader = Self::new(project, track_id)?;
+        reader.items.retain(|(item, _)| item.id == item_id);
+        if reader.items.len() != 1 {
+            return Err(RenderError::BadProject {
+                reason: format!("transition item {item_id} is not an enabled video item on track {track_id}"),
+            });
+        }
+        Ok(reader)
+    }
+
     fn bounds(&self) -> Option<(Tick, Tick)> {
         Some((self.items.first()?.0.start, self.items.last()?.0.end()))
     }
@@ -474,8 +488,7 @@ impl TrackVideoReader {
 pub struct SequentialOutcome {
     pub output_path: PathBuf,
     pub frames_written: u64,
-    /// Timeline span from the first enabled clip's start to the last
-    /// enabled clip's end, including any gaps.
+    /// Output duration after compressing each rendered transition region once.
     pub duration: Tick,
     /// The H.264 encoder the platform resolved to.
     pub encoder_name: String,
@@ -571,24 +584,48 @@ fn render_video_tracks_with_audio(
         reason: "the timeline has no enabled clips on visible video tracks to export".to_string(),
     })?;
     let end_time = end_time.expect("a start time is set whenever a track is added");
-    let total_duration = end_time - start_time;
+    // Build one compressed output-time map for every selected video track.
+    // A transition consumes D ticks from the combined timeline; the same map
+    // drives all tracks so their relative timing cannot drift apart.
+    let transition_map = TimelineTransitionMap::from_tracks(
+        project,
+        track_ids,
+        start_time,
+        end_time,
+    ).map_err(|error| RenderError::BadProject {
+        reason: error.to_string(),
+    })?;
+    let total_duration = transition_map.output_duration();
 
     let settings = &project.export_settings;
     let (width, height) = (settings.width, settings.height);
     let (fps_num, fps_den) = (settings.frame_rate_num, settings.frame_rate_den);
-    let schedule = TimelineFrameSchedule::for_range(
-        start_time,
-        end_time,
-        fps_num,
-        fps_den,
-    ).ok_or_else(|| RenderError::BadProject {
-        reason: "invalid output frame rate or timeline range".to_string(),
-    })?;
+    let schedule = transition_map.frame_schedule(fps_num, fps_den)
+        .ok_or_else(|| RenderError::BadProject {
+            reason: "invalid output frame rate or compressed timeline range".to_string(),
+        })?;
     let total_frames = schedule.frame_count() as usize;
     if total_frames == 0 {
         return Err(RenderError::BadProject {
-            reason: "the timeline rounds to zero output frames".to_string(),
+            reason: "the compressed timeline rounds to zero output frames".to_string(),
         });
+    }
+
+    // A transition needs outgoing and incoming frames at once. Keep two
+    // independent one-item readers per transition so decoder state remains
+    // monotonic within each reader, including when a clip participates in
+    // transitions at both its head and tail.
+    let mut transition_readers: Vec<(
+        TimelineTransitionSegment,
+        TrackVideoReader,
+        TrackVideoReader,
+    )> = Vec::with_capacity(transition_map.segments().len());
+    for segment in transition_map.segments() {
+        transition_readers.push((
+            *segment,
+            TrackVideoReader::for_item(project, segment.track_id, segment.outgoing_item_id)?,
+            TrackVideoReader::for_item(project, segment.track_id, segment.incoming_item_id)?,
+        ));
     }
 
     // Audio duration follows the exact output frame count, not an independently
@@ -669,15 +706,62 @@ fn render_video_tracks_with_audio(
         Ok(())
     };
 
-    // Track readers are kept in project order so upper tracks composite last.
-    // Missing layers are transparent to lower tracks; no layers means black.
+    // Track readers stay in project order, bottom to top. A transition is
+    // rendered as one contribution in its owning track's slot: lower tracks
+    // remain below it and upper tracks remain above it.
     for frame_index in 0..total_frames {
-        let timeline_time = schedule.frame_time(frame_index as u64)
+        let output_time = schedule.frame_time(frame_index as u64)
             .expect("frame index is bounded by the schedule")
             .time;
+        let source_time = transition_map.source_time_at(output_time)
+            .ok_or_else(|| RenderError::BadProject {
+                reason: "output frame is outside the compressed source-time map".to_string(),
+            })?;
+        let active_transition = transition_map.transition_frame_at(output_time);
         let mut layers = Vec::with_capacity(track_readers.len());
         for reader in &mut track_readers {
-            if let Some(frame) = reader.frame_at(timeline_time, width, height)? {
+            let frame = match active_transition.filter(|transition| transition.track_id == reader.track_id) {
+                Some(transition) => {
+                    let (_, outgoing_reader, incoming_reader) = transition_readers
+                        .iter_mut()
+                        .find(|(segment, _, _)| {
+                            segment.track_id == transition.track_id
+                                && segment.incoming_item_id == transition.incoming_item_id
+                        })
+                        .ok_or_else(|| RenderError::BadProject {
+                            reason: format!(
+                                "transition readers for incoming item {} are unavailable",
+                                transition.incoming_item_id
+                            ),
+                        })?;
+
+                    let outgoing = outgoing_reader
+                        .frame_at(transition.outgoing_timeline_time, width, height)?
+                        .ok_or_else(|| RenderError::BadProject {
+                            reason: format!(
+                                "outgoing clip {} produced no frame during its transition",
+                                transition.outgoing_item_id
+                            ),
+                        })?;
+                    let incoming = incoming_reader
+                        .frame_at(transition.incoming_timeline_time, width, height)?
+                        .ok_or_else(|| RenderError::BadProject {
+                            reason: format!(
+                                "incoming clip {} produced no frame during its transition",
+                                transition.incoming_item_id
+                            ),
+                        })?;
+                    Some(composite_cpu(
+                        &outgoing,
+                        &incoming,
+                        transition.kind,
+                        transition.progress,
+                        &transition.params,
+                    )?)
+                }
+                None => reader.frame_at(source_time, width, height)?,
+            };
+            if let Some(frame) = frame {
                 layers.push(frame);
             }
         }

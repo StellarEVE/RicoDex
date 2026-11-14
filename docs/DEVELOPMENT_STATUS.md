@@ -3,8 +3,8 @@
 **Status date:** 14 November 2026  
 **Repository:** https://github.com/StellarEVE/RicoDex  
 **Working branch:** `main`  
-**Current code head at the time this document was prepared:** `4615e4da46ed26e9d11f00dd6dffa1e666f0d380`  
-**Current verification:** Windows CI run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393) passed the complete Windows tests/build/package pipeline for schema-4 validation. Documentation consolidation commit [#89](https://github.com/StellarEVE/RicoDex/actions/runs/43561776169) also passed the complete pipeline.
+**Current code head at the time this document was prepared:** `fc0355bdb132e23df4dcc8b43af8c1dbf4b99f97`  
+**Current verification:** schema-4 validation passed the complete Windows CI pipeline in run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393). Documentation consolidation passed the complete pipeline in run [#89](https://github.com/StellarEVE/RicoDex/actions/runs/43561776169). Transition-mapping commit `fc0355b` passed workspace tests in Windows CI run [#90](https://github.com/StellarEVE/RicoDex/actions/runs/43564641742); the release build was still running and packaging had not started at the latest check.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
@@ -63,16 +63,15 @@ The transition work is split into two distinct parts:
 
 **Persisted model foundation on main:** schema 4 stores `ItemTransition { kind, params, duration }` on the incoming item at a cut. Core validates adjacency and duration constraints, the command participates in undo/redo, and older schemas migrate without inventing transitions. The latest validation-order correction `67ae474` passed complete Windows CI run [#85](https://github.com/StellarEVE/RicoDex/actions/runs/43560350393).
 
-**Renderer mapping foundation:** `TimelineTransitionMap` provides deterministic integer-Tick output-time compression, source-time lookup for non-transitioning tracks, outgoing/incoming source coordinates and blend progress for the transitioning track, sequential compression accumulation, and cross-track overlap rejection. Unit tests cover a single transition, two sequential transitions, overlapping regions, and hidden/disabled endpoints. This map is not yet used by the app-driven exporter.
+**Full-timeline rendering:** `TimelineTransitionMap` is consumed by the app-driven multi-track MP4 exporter. It compresses the combined outgoing/incoming region by exactly the persisted transition duration, maps non-transitioning tracks through the same compressed output clock, accumulates sequential compression, and rejects ambiguous overlapping regions. Dedicated outgoing/incoming readers supply the CPU compositor; the blended result is inserted at the transition track's normal stack position, with lower tracks underneath and upper tracks above. MP4 tests cover one dissolve, a transition with an upper video overlay, two sequential transitions, output frame-count reduction and selected-song stereo AAC duration/channel synchronization.
 
-**Not yet complete:** the multi-track exporter still renders hard cuts, and the Edit UI has no transition controls. The independent two-clip `render_project` path is not a substitute for full-timeline transition rendering.
+**Not yet complete:** the Edit UI does not yet provide transition controls. The independent two-clip `render_project` path remains a separate narrower renderer.
 
 ## 4. Explicitly incomplete
 
 The following remain planned or incomplete. Do not describe them as supported end-to-end:
 
-- Full-timeline transition rendering, including integration of the transition map, outgoing/incoming frame decoding, multi-track layer composition and MP4 verification.
-- Transition editing controls on the desktop Edit page.
+- Edit-page transition controls, including set/change/clear operations through Core commands and undo/redo UI tests.
 - Preview playback driven by the same timeline schedule and renderer as export.
 - Timeline audio items and arbitrary audio-track placement.
 - Audio captured from source video clips.
@@ -90,20 +89,17 @@ The current Edit UI remains a small single-video-track editing surface. The rend
 
 - Multi-track exporter: verified by Windows CI run #81, including workspace tests and packaging.
 - Schema-4 transition model: passed the complete Windows CI pipeline in run #85.
-- Transition timeline mapping foundation: unit tests are added in this implementation slice; the corresponding Windows CI run is its verification gate.
-- Previous CI runs #83 and #84 failed during the first transition-model test pass. Run #83 exposed a stale test type name; run #84 exposed validation error-ordering in the transition-limit test. The stale test type was corrected, and commit `67ae474` moves transition-region aggregate validation after individual transition validation. The run #85 workspace-test step now passes; the final workflow conclusion is still required.
+- Full-timeline transition export: implementation and MP4 integration tests are in this slice; the exact Windows CI run triggered by its commit is the verification gate.
+- Previous CI runs #83 and #84 failed during the first transition-model test pass. Run #83 exposed a stale test type name; run #84 exposed validation error-ordering in the transition-limit test. The stale test type was corrected, and commit `67ae474` moves transition-region aggregate validation after individual transition validation. The complete validation workflow passed in run #85.
 - Windows CI builds and packages the application, but it does not establish clean-machine interactive acceptance or hardware performance.
 - The Windows smoke-test checklist is `docs/WINDOWS_SMOKE_TEST.md`.
 - The CI artifact is a validation package, not an approved public release. See `docs/LICENSING.md`.
 
 ## 6. Recommended next implementation sequence
 
-1. Integrate `TimelineTransitionMap` into the multi-track frame schedule and renderer.
-2. Add dedicated outgoing/incoming frame readers for the transition track; do not ask one stateful track decoder to seek to two source times in one output frame.
-3. Render the transition as a single track contribution, then composite that result into the stack so lower tracks remain visible beneath transparent transition output and higher tracks remain above it.
-4. Add integration tests for a two-clip dissolve, a lower track underneath the transition, two sequential non-overlapping transitions, hidden/disabled clips, output frame-count reduction and selected-song synchronization.
-5. Add the Edit-page transition control through `Command::SetItemTransition`, with undo/redo and clear invalid-state feedback.
-6. Only after transitions pass, begin timeline audio-item placement and mixing.
+1. Add the Edit-page transition inspector through `Command::SetItemTransition`, with selection of transition kind, duration controls, clear/revert support and Core validation feedback.
+2. Verify setting, changing and clearing a transition through AppState/UI tests, including undo and redo.
+3. Only after Phase 2.2's UI controls and end-to-end export gates pass, begin timeline audio-item placement and mixing.
 
 Avoid beginning preview parity or cache redesign until the timeline transition interpretation is stable. Do not introduce simultaneous transition overlaps across different video tracks without an explicit compositing and timeline-mapping design.
 

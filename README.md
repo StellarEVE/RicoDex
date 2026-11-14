@@ -10,7 +10,7 @@ RicoDex is an early-stage project, not a finished or production-ready editor. It
 
 RicoDex has a working local-first analysis, editing, project-persistence and export foundation. The latest verified export milestone is multi-track video composition: Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, and Inno Setup packaging. The app-driven exporter composes visible video tracks in project order, preserves gaps, reveals lower tracks through upper-track gaps, and can mux the selected song as stereo AAC. CI verifies automated behaviour and packaging; it does not replace interactive testing on a real Windows desktop.
 
-The current main branch contains the persisted schema-4 transition model and the first renderer-side transition timeline mapping foundation. The mapping defines an incoming transition of duration D at cut C as compressing the source interval [C-D, C+D) into D output ticks, with a shared 2x source-time map for tracks not undergoing that transition. It accumulates compression for sequential transitions and rejects overlapping transition regions across selected visible video tracks. This mapping is not yet consumed by the app-driven multi-track exporter, and the Edit UI does not yet expose transition controls.
+The current main branch contains the persisted schema-4 transition model and a transition-aware multi-track exporter. The shared integer-Tick map compresses each incoming transition's two source halves into one output interval, maps other visible tracks through the same compressed clock, accumulates sequential transitions and rejects overlapping cross-track regions. Dedicated outgoing/incoming readers feed the CPU transition compositor, and each blended result is layered at the transitioning track's normal position. MP4 integration tests cover a two-clip dissolve, track stacking, sequential transitions, output frame count and selected-song stereo AAC synchronization. The exporter integration is awaiting its Windows CI result; the Edit UI does not yet expose transition controls.
 
 The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
 
@@ -46,7 +46,9 @@ Schema-1 and schema-2 projects predate persisted provenance. Their existing clip
 
 ### Export
 
-- Export enabled clips across visible video tracks to MP4 using H.264 video and hard cuts. Tracks composite in project order, with later tracks above earlier tracks.
+- Export enabled clips across visible video tracks to MP4 using H.264 video, hard cuts and persisted incoming transitions. Tracks composite in project order, with later tracks above earlier tracks.
+- Each active transition consumes its duration from the combined timeline: the outgoing tail and incoming head form one transition region, shortening the output by that duration. The shared Tick-based map keeps other tracks synchronized and accumulates sequential, non-overlapping transitions.
+- The selected-song stereo AAC soundtrack follows the compressed output frame schedule, remaining at normal playback speed and being truncated or padded to the final video duration.
 - Preserve timeline gaps. A gap or disabled clip on an upper video track reveals active lower tracks; areas with no active visible video layer render black.
 - When a song is selected, mux it as stereo AAC at 48 kHz, starting at output time zero.
 - Fit the soundtrack to the encoded video frame schedule: truncate longer audio or pad shorter audio with silence.
@@ -61,7 +63,7 @@ The following are not yet supported by the app's full sequential export workflow
 - Audio captured from source video clips.
 - Timeline audio tracks or arbitrary audio-item placement.
 - Per-track or per-clip gain, fades, and loudness normalization.
-- Full-timeline transition rendering. Transition metadata is now persisted in schema 4, but it is not yet integrated into app export or exposed in the Edit UI.
+- Transition editing controls are not yet exposed in the Edit UI. Transition rendering is integrated into MP4 export, but users cannot yet add or change transitions from the application.
 - Consistent frame scheduling and behaviour between interactive preview and final export.
 - Cancellation during an active encode and atomic temporary-output finalization.
 - Manual clips can be explicitly unpinned to allow planner refinement; older projects migrate conservatively and require deliberate unpinning where regeneration is desired.

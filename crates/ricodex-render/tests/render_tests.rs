@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ricodex_core::{
-    Asset, AssetKind, Fingerprint, Item, Project, Tick, Track, TrackKind,
+    Asset, AssetKind, Fingerprint, Item, ItemTransition, Project, Tick, Track, TrackKind,
 };
 use ricodex_render::{
     apply_effects, composite_cpu, composite_video_layers, frame_difference, render_project, render_sequential_with_audio, render_timeline, render_timeline_with_audio, EffectOp, Frame, StereoAudioInput,
@@ -529,6 +529,136 @@ fn render_job_produces_a_verifiable_mp4() {
 }
 
 #[test]
+fn timeline_export_renders_a_two_clip_transition_to_mp4() {
+    let dir = test_dir("timeline-transition");
+    let (a, b) = make_clips(&dir);
+    let mut project = two_clip_project(&a, &b);
+    project.items_mut(1).unwrap()[1].transition_in = Some(ItemTransition {
+        kind: TransitionKind::CrossDissolve,
+        params: TransitionParams::default(),
+        duration: Tick::from_seconds(0.5),
+    });
+    let output = dir.join("transition.mp4");
+
+    let outcome = render_timeline(&project, &output, &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 35);
+    assert_eq!(outcome.duration, Tick::from_seconds(3.5));
+
+    let info = ricodex_platform::probe(&output).unwrap();
+    assert!(
+        (info.duration.to_seconds() - 3.5).abs() < 0.15,
+        "transition-compressed MP4 duration was {} seconds",
+        info.duration.to_seconds()
+    );
+
+    let rendered = decode_all(&output);
+    let source_a = decode_all(&a);
+    let source_b = decode_all(&b);
+    assert!((34..=36).contains(&rendered.len()), "decoded {} output frames", rendered.len());
+
+    // Output frame 17 is 1.7 s: 0.2 s into the 1.5..2.0 s
+    // transition, so it should blend A at 1.7 s with B at 0.2 s.
+    let as_frame = |frames: &Vec<(Tick, Vec<u8>, u32, u32)>, index: usize| {
+        let (_, pixels, width, height) = &frames[index];
+        Frame::from_rgb24(*width, *height, pixels).unwrap()
+    };
+    let actual = as_frame(&rendered, 17);
+    let outgoing = as_frame(&source_a, 17);
+    let incoming = as_frame(&source_b, 2);
+    let expected = composite_cpu(
+        &outgoing,
+        &incoming,
+        TransitionKind::CrossDissolve,
+        0.4,
+        &TransitionParams::default(),
+    ).unwrap();
+    assert!(
+        mean_abs_diff(&actual, &expected) < 16.0,
+        "transition frame should match the CPU dissolve oracle, difference {}",
+        mean_abs_diff(&actual, &expected)
+    );
+
+    // After the transition, incoming source time is shifted by the consumed
+    // outgoing/incoming head region: output 2.5 s maps to B source time 1.0 s.
+    let post_transition = as_frame(&rendered, 25);
+    let expected_post = as_frame(&source_b, 10);
+    assert!(
+        mean_abs_diff(&post_transition, &expected_post) < 14.0,
+        "incoming clip should resume at the compressed source position"
+    );
+}
+
+#[test]
+fn timeline_transition_is_composited_between_lower_and_upper_tracks() {
+    let dir = test_dir("transition-track-order");
+    let (a, b) = make_clips(&dir);
+    let mut project = two_clip_project(&a, &b);
+
+    // Track 2 transitions from B into A over the cut at 2 seconds.
+    project.add_track(Track::new(2, TrackKind::Video, "V2"));
+    project.items_mut(2).unwrap().push(Item::new(
+        10, 2, Tick::ZERO, Tick::from_seconds(2.0), Tick::ZERO,
+    ));
+    let mut incoming = Item::new(
+        11, 1, Tick::from_seconds(2.0), Tick::from_seconds(2.0), Tick::ZERO,
+    );
+    incoming.transition_in = Some(ItemTransition {
+        kind: TransitionKind::CrossDissolve,
+        params: TransitionParams::default(),
+        duration: Tick::from_seconds(0.5),
+    });
+    project.items_mut(2).unwrap().push(incoming);
+
+    // Track 3 sits above the transition track for one frame inside the
+    // transition region. It must remain the topmost layer after blending.
+    project.add_track(Track::new(3, TrackKind::Video, "V3"));
+    project.items_mut(3).unwrap().push(Item::new(
+        12,
+        2,
+        Tick::from_seconds(1.6),
+        Tick::from_seconds(0.2),
+        Tick::ZERO,
+    ));
+
+    let output = dir.join("transition-stack.mp4");
+    let outcome = render_timeline(&project, &output, &mut |_| {}).unwrap();
+    assert_eq!(outcome.frames_written, 35);
+    assert_eq!(outcome.duration, Tick::from_seconds(3.5));
+
+    let rendered = decode_all(&output);
+    let source_b = decode_all(&b);
+
+    // At the first transition frame (output 1.5 s), progress is zero.
+    // The transition track must cover its lower track with the outgoing B frame.
+    let first_transition = {
+        let (_, pixels, width, height) = &rendered[15];
+        Frame::from_rgb24(*width, *height, pixels).unwrap()
+    };
+    let expected_outgoing = {
+        let (_, pixels, width, height) = &source_b[15];
+        Frame::from_rgb24(*width, *height, pixels).unwrap()
+    };
+    assert!(
+        mean_abs_diff(&first_transition, &expected_outgoing) < 14.0,
+        "transition track must composite above the lower track at its start"
+    );
+
+    let actual = {
+        let (_, pixels, width, height) = &rendered[16];
+        Frame::from_rgb24(*width, *height, pixels).unwrap()
+    };
+    let expected_upper = {
+        let (_, pixels, width, height) = &source_b[1];
+        Frame::from_rgb24(*width, *height, pixels).unwrap()
+    };
+    assert!(
+        mean_abs_diff(&actual, &expected_upper) < 14.0,
+        "upper video track must composite above the active transition, difference {}",
+        mean_abs_diff(&actual, &expected_upper)
+    );
+}
+
+#[test]
 fn render_cache_serves_the_second_identical_job() {
     let dir = test_dir("cache");
     let (a, b) = make_clips(&dir);
@@ -795,6 +925,13 @@ fn sequential_export_muxes_selected_stereo_song_in_sync_with_video() {
     assert_eq!(source_audio.sample_rate, 44_100);
 
     let mut project = three_clip_project(&a, &b);
+    let transition = ItemTransition {
+        kind: TransitionKind::CrossDissolve,
+        params: TransitionParams::default(),
+        duration: Tick::from_seconds(0.25),
+    };
+    project.items_mut(1).unwrap()[1].transition_in = Some(transition);
+    project.items_mut(1).unwrap()[2].transition_in = Some(transition);
     project.add_track(Track::new(2, TrackKind::Video, "V2"));
     project.items_mut(2).unwrap().push(Item::new(
         4, 2, Tick::ZERO, Tick::from_seconds(1.0), Tick::ZERO,
@@ -823,8 +960,8 @@ fn sequential_export_muxes_selected_stereo_song_in_sync_with_video() {
     )
     .unwrap();
 
-    assert_eq!(outcome.frames_written, 30);
-    assert_eq!(outcome.duration, Tick::from_seconds(3.0));
+    assert_eq!(outcome.frames_written, 25);
+    assert_eq!(outcome.duration, Tick::from_seconds(2.5));
     assert!(progress_calls.borrow().windows(2).all(|pair| pair[1] >= pair[0]));
     assert_eq!(*progress_calls.borrow().last().unwrap(), 1.0);
 
@@ -833,8 +970,8 @@ fn sequential_export_muxes_selected_stereo_song_in_sync_with_video() {
     assert_eq!(exported.sample_rate, 48_000);
     assert!(exported.sample_frames() > 48_000 * 2);
     assert!(
-        (exported.duration_seconds() - 3.0).abs() < 0.06,
-        "audio duration {} should match 3 second video",
+        (exported.duration_seconds() - 2.5).abs() < 0.06,
+        "audio duration {} should match 2.5 second transition-compressed video",
         exported.duration_seconds()
     );
 
