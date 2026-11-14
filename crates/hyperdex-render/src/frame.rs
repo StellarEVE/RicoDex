@@ -33,7 +33,7 @@ impl Frame {
     /// A frame of one solid colour, for tests and dip colours alike.
     pub fn solid(width: u32, height: u32, rgba: [u8; 4]) -> Frame {
         let mut pixels = vec![0u8; width as usize * height as usize * 4];
-        for chunk in pixels.chunks_exact_mut(4) {
+        for chunk in pixels.as_chunks_mut::<4>().0 {
             chunk.copy_from_slice(&rgba);
         }
         Frame {
@@ -56,7 +56,7 @@ impl Frame {
             });
         }
         let mut pixels = vec![0u8; width as usize * height as usize * 4];
-        for (dst, src) in pixels.chunks_exact_mut(4).zip(rgb.chunks_exact(3)) {
+        for (dst, src) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(rgb.as_chunks::<3>().0) {
             dst[0] = src[0];
             dst[1] = src[1];
             dst[2] = src[2];
@@ -73,7 +73,7 @@ impl Frame {
     /// consumes. Alpha is dropped.
     pub fn to_rgb24(&self) -> Vec<u8> {
         let mut out = vec![0u8; self.width as usize * self.height as usize * 3];
-        for (dst, src) in out.chunks_exact_mut(3).zip(self.pixels.chunks_exact(4)) {
+        for (dst, src) in out.as_chunks_mut::<3>().0.iter_mut().zip(self.pixels.as_chunks::<4>().0) {
             dst.copy_from_slice(&src[0..3]);
         }
         out
@@ -138,7 +138,7 @@ pub(crate) fn sample_bilinear(frame: &Frame, sx: f32, sy: f32) -> [f32; 4] {
     let fx = sx - x0 as f32;
     let fy = sy - y0 as f32;
     let mut out = [0f32; 4];
-    for channel in 0..4 {
+    for (channel, value) in out.iter_mut().enumerate() {
         let top = lerp(
             texel(frame, x0, y0, channel),
             texel(frame, x1, y0, channel),
@@ -149,7 +149,7 @@ pub(crate) fn sample_bilinear(frame: &Frame, sx: f32, sy: f32) -> [f32; 4] {
             texel(frame, x1, y1, channel),
             fx,
         );
-        out[channel] = lerp(top, bottom, fy);
+        *value = lerp(top, bottom, fy);
     }
     out
 }

@@ -10,33 +10,25 @@ hyperdex-platform; this crate only consumes its plain data frames.
 ## Building against rsmpeg and FFmpeg
 
 hyperdex-platform links FFmpeg as a library through the rsmpeg crate with
-its `link_system_ffmpeg` feature, so building this crate needs a
-FFmpeg development setup on the machine: headers, pkg-config files and
-libclang for bindgen. A runtime only install is not enough. The
-binding spike at `~/workspace/spikes/binding-spike/` (see its
-RESULTS.md) proved rsmpeg 0.18.0 against FFmpeg 8.1.2 using a hand
-built dev overlay, and this workspace builds against that overlay.
-The production build is expected to pin and ship a full FFmpeg build
-with its dev files instead.
+its `link_system_ffmpeg` feature. This workspace pins the generated
+FFmpeg 8.1 Windows ABI binding in `vendor/ffmpeg8_1_binding.rs`; the
+Windows build needs the matching shared development package (headers,
+import libraries and runtime DLLs). A runtime-only installation is not
+enough. See `vendor/README.md` for binding provenance and the Windows CI
+environment.
 
-Environment for cargo in this sandbox:
+Windows Cargo environment (substitute your FFmpeg installation path):
 
-    RUSTUP_HOME=$HOME/workspace/.rustup
-    CARGO_HOME=$HOME/workspace/.cargo
-    PATH="$HOME/workspace/.cargo/bin:$PATH"
-    PKG_CONFIG_PATH=$HOME/workspace/spikes/binding-spike/ffdev/lib/pkgconfig
-    LIBCLANG_PATH=$HOME/workspace/spikes/binding-spike/pylibs/clang/native
-    BINDGEN_EXTRA_CLANG_ARGS="-I/usr/lib/gcc/x86_64-linux-gnu/13/include"
+    FFMPEG_DLL_PATH=C:\path\to\ffmpeg\lib
+    FFMPEG_INCLUDE_DIR=C:\path\to\ffmpeg\include
+    FFMPEG_BINDING_PATH=<workspace>\vendor\ffmpeg8_1_binding.rs
+    PATH=<ffmpeg>\bin;%PATH%
 
 What each piece does:
 
-* `PKG_CONFIG_PATH` points pkg-config at the overlay, which carries
-  the FFmpeg 8.1.2 headers and `.pc` files and resolves linking to
-  the system runtime libraries.
-* `LIBCLANG_PATH` points bindgen (through rusty_ffmpeg) at the
-  libclang shared library it loads to parse the headers.
-* `BINDGEN_EXTRA_CLANG_ARGS` adds the GCC builtin include directory
-  that the header parse needs on this machine.
+* `FFMPEG_BINDING_PATH` keeps generated struct layouts consistent with
+  the FFmpeg 8.1 Windows build instead of relying on host-specific
+  bindgen output.
 
 ## Tests
 

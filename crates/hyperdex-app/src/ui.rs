@@ -803,10 +803,8 @@ impl EditorApp {
         ui.horizontal(|ui| {
             ui.heading("Cut");
             ui.add_space(12.0);
-            if self.state.pipeline_running() {
-                if ui.button("Cancel").clicked() {
-                    self.state.request_pipeline_cancel();
-                }
+            if self.state.pipeline_running() && ui.button("Cancel").clicked() {
+                self.state.request_pipeline_cancel();
             }
         });
         ui.label(RichText::new(self.state.cut_status_line()).strong());
@@ -1342,7 +1340,7 @@ impl EditorApp {
                     );
                     match self.state.apply_edit(&command) {
                         Ok(()) => {
-                            self.state.selected_item = split_id.or_else(|| {
+                            self.state.selected_item = split_id.or({
                                 if removes_item { None } else { Some(clip.item_id) }
                             });
                         }

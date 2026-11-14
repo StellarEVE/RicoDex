@@ -106,14 +106,14 @@ fn mark_manual(item: &mut Item) {
 impl Project {
     /// Apply one command with clone, apply, validate, commit semantics.
     /// On error, self is returned untouched, alongside the error.
-    pub fn apply(self, command: &Command) -> Result<Project, (Project, CommandError)> {
+    pub fn apply(self, command: &Command) -> Result<Project, (Box<Project>, CommandError)> {
         let mut next = self.clone();
         match next.apply_in_place(command) {
             Ok(()) => match next.validate() {
                 Ok(()) => Ok(next),
-                Err(e) => Err((self, CommandError::Invalid(e))),
+                Err(e) => Err((Box::new(self), CommandError::Invalid(e))),
             },
-            Err(e) => Err((self, e)),
+            Err(e) => Err((Box::new(self), e)),
         }
     }
 
@@ -494,7 +494,7 @@ mod tests {
             track: Track::new(1, TrackKind::Audio, "A1"),
         }).unwrap_err();
 
-        assert_eq!(unchanged, project);
+        assert_eq!(*unchanged, project);
         assert_eq!(
             error,
             CommandError::Invalid(ModelError::DuplicateTrackId { id: 1 })

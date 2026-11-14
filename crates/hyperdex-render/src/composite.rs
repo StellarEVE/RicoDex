@@ -37,8 +37,9 @@ pub fn composite_video_layers(
         }
         for (dst, src) in output
             .pixels
-            .chunks_exact_mut(4)
-            .zip(layer.pixels.chunks_exact(4))
+            .as_chunks_mut::<4>().0
+            .iter_mut()
+            .zip(layer.pixels.as_chunks::<4>().0)
         {
             let alpha = src[3] as f32 / 255.0;
             let inverse = 1.0 - alpha;
@@ -111,8 +112,9 @@ fn dissolve(a: &Frame, b: &Frame, p: f32, linear_light: bool) -> Frame {
     let mut pixels = empty_like(a);
     for (index, (pa, pb)) in a
         .pixels
-        .chunks_exact(4)
-        .zip(b.pixels.chunks_exact(4))
+        .as_chunks::<4>().0
+        .iter()
+        .zip(b.pixels.as_chunks::<4>().0)
         .enumerate()
     {
         for channel in 0..3 {
@@ -164,8 +166,9 @@ fn dip_to_color(a: &Frame, b: &Frame, p: f32, params: &TransitionParams) -> Fram
     let mut pixels = empty_like(a);
     for (index, (pa, pb)) in a
         .pixels
-        .chunks_exact(4)
-        .zip(b.pixels.chunks_exact(4))
+        .as_chunks::<4>().0
+        .iter()
+        .zip(b.pixels.as_chunks::<4>().0)
         .enumerate()
     {
         for channel in 0..4 {
@@ -198,8 +201,9 @@ fn dip_to_dissolve(a: &Frame, b: &Frame, p: f32) -> Frame {
     let mut pixels = empty_like(a);
     for (index, (pa, pb)) in a
         .pixels
-        .chunks_exact(4)
-        .zip(b.pixels.chunks_exact(4))
+        .as_chunks::<4>().0
+        .iter()
+        .zip(b.pixels.as_chunks::<4>().0)
         .enumerate()
     {
         for channel in 0..3 {

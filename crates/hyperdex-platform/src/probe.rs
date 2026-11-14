@@ -122,5 +122,5 @@ fn stream_rotation(stream: &rsmpeg::avformat::AVStreamRef<'_>) -> Option<i32> {
 }
 
 fn normalize_degrees(degrees: i32) -> i32 {
-    ((degrees % 360) + 360) % 360
+    degrees.rem_euclid(360)
 }

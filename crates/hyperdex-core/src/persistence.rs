@@ -85,15 +85,14 @@ impl Project {
         // Infer a song only when the legacy project contains exactly one
         // audio asset.
         if peek.schema_version == 1 {
+            let mut audio_ids = project
+                .assets
+                .iter()
+                .filter(|asset| asset.kind == crate::model::AssetKind::Audio)
+                .map(|asset| asset.id);
             if project.song_asset_id.is_none() {
-                let audio_ids: Vec<_> = project
-                    .assets
-                    .iter()
-                    .filter(|asset| asset.kind == crate::model::AssetKind::Audio)
-                    .map(|asset| asset.id)
-                    .collect();
-                if audio_ids.len() == 1 {
-                    project.song_asset_id = Some(audio_ids[0]);
+                if let (Some(song_id), None) = (audio_ids.next(), audio_ids.next()) {
+                    project.song_asset_id = Some(song_id);
                 }
             }
         }

@@ -72,9 +72,6 @@ pub enum TrackKind {
     Audio,
 }
 
-/// One timeline track. Items live on the project, grouped by track id, so
-/// track order here is the stacking and playback order.
-
 /// One named transition form supported by the CPU reference compositor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TransitionKind {
@@ -158,6 +155,8 @@ pub struct ItemTransition {
     pub duration: Tick,
 }
 
+/// One timeline track. Items live on the project, grouped by track id, so
+/// track order here is the stacking and playback order.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: TrackId,
@@ -182,9 +181,10 @@ impl Track {
 }
 
 /// Records whether a clip came from the planner or was directly edited by the user.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ItemProvenance {
     Generated,
+    #[default]
     Manual,
 }
 
@@ -194,12 +194,6 @@ fn default_pinned() -> bool {
     true
 }
 
-impl Default for ItemProvenance {
-    fn default() -> Self {
-        // Missing provenance in old project files is ambiguous. Default safely.
-        Self::Manual
-    }
-}
 
 /// One placed clip: a range of a source asset placed on a track.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

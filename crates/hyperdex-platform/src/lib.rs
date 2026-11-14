@@ -4,8 +4,7 @@
 //! and nowhere else.
 //!
 //! Everything FFmpeg shaped in the workspace goes through this crate:
-//! it wraps the rsmpeg binding (rsmpeg 0.18.0 against FFmpeg 8.1.2, the
-//! triple proved by the binding spike) and hands the rest of the
+//! it wraps the rsmpeg 0.18.0 binding pinned to FFmpeg 8.1's Windows ABI and hands the rest of the
 //! workspace plain data: a [`CapabilityReport`], container
 //! [`ProbeInfo`], decoded [`GrayFrame`]s and RGB frames, and
 //! [`TrialDecodeReport`]s. Higher crates never name an FFmpeg type.

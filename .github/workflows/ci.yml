@@ -33,12 +33,13 @@ jobs:
           if (-not (Test-Path "$($root.FullName)\include\libavutil\avutil.h")) { throw "FFmpeg headers were not found." }
           if (-not (Test-Path "$($root.FullName)\lib\avutil.lib")) { throw "FFmpeg import libraries were not found." }
           "FFMPEG_ROOT=$($root.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Configure FFmpeg and bindgen
+      - name: Configure FFmpeg and ABI bindings
         shell: pwsh
         run: |
           "FFMPEG_DLL_PATH=$env:FFMPEG_ROOT\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
           "FFMPEG_INCLUDE_DIR=$env:FFMPEG_ROOT\include" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "FFMPEG_BINDING_PATH=$PWD\vendor\ffmpeg8_1_binding.rs" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "WGPU_BACKEND=vulkan" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$env:FFMPEG_ROOT\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: Download GPL FFmpeg for H.264 test fixtures only
         shell: pwsh

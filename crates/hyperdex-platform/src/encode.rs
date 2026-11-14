@@ -109,10 +109,10 @@ fn drain_audio_packets(
                     .interleaved_write_frame(&mut packet)
                     .map_err(|e| encode_error(format!("cannot write AAC packet: {e}")))?;
             }
-            Err(e) if matches!(e, rsmpeg::error::RsmpegError::EncoderDrainError) => {
+            Err(rsmpeg::error::RsmpegError::EncoderDrainError) => {
                 return Ok(())
             }
-            Err(e) if matches!(e, rsmpeg::error::RsmpegError::EncoderFlushedError) => {
+            Err(rsmpeg::error::RsmpegError::EncoderFlushedError) => {
                 return Ok(())
             }
             Err(e) => return Err(encode_error(format!("cannot receive AAC packet: {e}"))),
@@ -163,7 +163,7 @@ fn encode_audio_frame(
     audio.samples_encoded += frame_size as u64;
     match audio.encoder.send_frame(Some(&frame)) {
         Ok(()) => {}
-        Err(e) if matches!(e, rsmpeg::error::RsmpegError::SendFrameAgainError) => {
+        Err(rsmpeg::error::RsmpegError::SendFrameAgainError) => {
             drain_audio_packets(output, audio)?;
             audio
                 .encoder
@@ -243,7 +243,7 @@ impl VideoEncoder {
         bitrate_kbps: u32,
         audio_bitrate_kbps: Option<u32>,
     ) -> Result<VideoEncoder, PlatformError> {
-        if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
+        if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             return Err(encode_error(format!(
                 "H.264 with 4:2:0 chroma needs even, nonzero dimensions, got {width}x{height}"
             )));
@@ -417,7 +417,7 @@ impl VideoEncoder {
         }
         match self.encoder.send_frame(Some(&self.yuv_frame)) {
             Ok(()) => {}
-            Err(e) if matches!(e, rsmpeg::error::RsmpegError::SendFrameAgainError) => {
+            Err(rsmpeg::error::RsmpegError::SendFrameAgainError) => {
                 self.drain_packets()?;
                 self.encoder
                     .send_frame(Some(&self.yuv_frame))
@@ -439,7 +439,7 @@ impl VideoEncoder {
         if self.audio.is_none() {
             return Err(encode_error("audio was not enabled for this encoder"));
         }
-        if samples.len() % 2 != 0 {
+        if !samples.len().is_multiple_of(2) {
             return Err(encode_error("stereo audio input must contain L/R sample pairs"));
         }
         if samples.is_empty() {
@@ -472,10 +472,10 @@ impl VideoEncoder {
                         .interleaved_write_frame(&mut packet)
                         .map_err(|e| encode_error(format!("cannot write video packet: {e}")))?;
                 }
-                Err(e) if matches!(e, rsmpeg::error::RsmpegError::EncoderDrainError) => {
+                Err(rsmpeg::error::RsmpegError::EncoderDrainError) => {
                     return Ok(())
                 }
-                Err(e) if matches!(e, rsmpeg::error::RsmpegError::EncoderFlushedError) => {
+                Err(rsmpeg::error::RsmpegError::EncoderFlushedError) => {
                     return Ok(())
                 }
                 Err(e) => return Err(encode_error(format!("cannot receive video packet: {e}"))),
@@ -500,7 +500,7 @@ impl VideoEncoder {
         let (output, audio) = (&mut self.output, self.audio.as_mut().unwrap());
         match audio.encoder.send_frame(None) {
             Ok(()) => {}
-            Err(e) if matches!(e, rsmpeg::error::RsmpegError::EncoderFlushedError) => {}
+            Err(rsmpeg::error::RsmpegError::EncoderFlushedError) => {}
             Err(e) => return Err(encode_error(format!("cannot flush AAC encoder: {e}"))),
         }
         drain_audio_packets(output, audio)
@@ -512,7 +512,7 @@ impl VideoEncoder {
         self.flush_audio()?;
         match self.encoder.send_frame(None) {
             Ok(()) => {}
-            Err(e) if matches!(e, rsmpeg::error::RsmpegError::EncoderFlushedError) => {}
+            Err(rsmpeg::error::RsmpegError::EncoderFlushedError) => {}
             Err(e) => return Err(encode_error(format!("cannot flush video encoder: {e}"))),
         }
         self.drain_packets()?;

@@ -291,7 +291,8 @@ pub fn decode_stereo_file(path: &Path) -> Result<DecodedStereoAudio> {
                         samples.push(sample);
                     }
                 } else if channels == 2 {
-                    for frame in interleaved.chunks_exact(2) {
+                    let (frames, _) = interleaved.as_chunks::<2>();
+                    for frame in frames {
                         samples.push(if frame[0].is_finite() { frame[0].clamp(-1.0, 1.0) } else { 0.0 });
                         samples.push(if frame[1].is_finite() { frame[1].clamp(-1.0, 1.0) } else { 0.0 });
                     }
@@ -444,9 +445,10 @@ pub fn onset_envelope(samples: &[f32], sample_rate: u32) -> (Vec<f32>, usize) {
         band_bins[b] += 1;
     }
 
-    let mut band_flux = vec![vec![0f32; frames]; band_count];
+    // Frame-major layout keeps writes for one FFT frame contiguous.
+    let mut band_flux = vec![vec![0f32; band_count]; frames];
     let mut prev_mag = vec![0f32; bins];
-    for f in 0..frames {
+    for (f, frame_flux) in band_flux.iter_mut().enumerate() {
         let start = f * hop;
         for i in 0..win {
             input[i] = samples[start + i] * window[i];
@@ -457,7 +459,8 @@ pub fn onset_envelope(samples: &[f32], sample_rate: u32) -> (Vec<f32>, usize) {
         for b in 0..bins {
             let mag = spectrum[b].norm();
             let delta = (mag - prev_mag[b]).max(0.0);
-            band_flux[band_of_bin[b]][f] += delta / band_bins[band_of_bin[b]].max(1) as f32;
+            let band = band_of_bin[b];
+            frame_flux[band] += delta / band_bins[band].max(1) as f32;
             prev_mag[b] = mag;
         }
     }
@@ -465,11 +468,12 @@ pub fn onset_envelope(samples: &[f32], sample_rate: u32) -> (Vec<f32>, usize) {
     // Combine bands, each normalized by its own mean so quiet bands
     // still contribute.
     let mut envelope = vec![0f32; frames];
-    for band in &band_flux {
-        let mean = band.iter().sum::<f32>() / frames.max(1) as f32;
+    for band in 0..band_count {
+        let mean = band_flux.iter().map(|frame| frame[band]).sum::<f32>()
+            / frames.max(1) as f32;
         if mean > 0.0 {
             for f in 0..frames {
-                envelope[f] += band[f] / mean;
+                envelope[f] += band_flux[f][band] / mean;
             }
         }
     }

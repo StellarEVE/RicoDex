@@ -58,7 +58,7 @@ struct PreparedAudioTrackItem<'a> {
 }
 
 fn sample_stereo_at_tick(samples: &[f32], sample_rate: u32, time: Tick) -> [f32; 2] {
-    if sample_rate == 0 || time < Tick::ZERO || samples.len() < 2 || samples.len() % 2 != 0 {
+    if sample_rate == 0 || time < Tick::ZERO || samples.len() < 2 || !samples.len().is_multiple_of(2) {
         return [0.0, 0.0];
     }
     let numerator = time.as_ticks() as i128 * sample_rate as i128;
@@ -754,10 +754,10 @@ fn render_video_tracks_with_audio(
                         let source_index = (numerator / OUTPUT_AUDIO_RATE as u128) as usize;
                         let fraction = (numerator % OUTPUT_AUDIO_RATE as u128) as f32 / OUTPUT_AUDIO_RATE as f32;
                         let source_frames = input.interleaved_samples.len() / 2;
-                        for channel in 0..2 {
+                        for (channel, mixed_channel) in mixed.iter_mut().enumerate() {
                             let a = if source_index < source_frames { input.interleaved_samples[source_index * 2 + channel] } else { 0.0 };
                             let b = if source_index + 1 < source_frames { input.interleaved_samples[(source_index + 1) * 2 + channel] } else { 0.0 };
-                            mixed[channel] += a + (b - a) * fraction;
+                            *mixed_channel += a + (b - a) * fraction;
                         }
                     }
 

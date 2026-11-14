@@ -111,7 +111,7 @@ impl GpuCompositor {
 
     async fn new_async() -> Option<GpuCompositor> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: wgpu::util::backend_bits_from_env().unwrap_or_else(wgpu::Backends::all),
             ..Default::default()
         });
         let mut adapter = instance

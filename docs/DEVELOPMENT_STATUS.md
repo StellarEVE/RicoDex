@@ -7,6 +7,8 @@
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
+**Current verification:** local Windows `cargo test --locked --workspace` passes all 128 tests, strict Clippy passes with `-D warnings`, and `cargo build --locked --release --workspace` succeeds against FFmpeg 8.1.3. Tests include app-worker MP4 verification of placed-audio timing. Full Windows CI on this commit, interactive desktop smoke testing, and formal transitive-library licensing review remain pending. `cargo audit` is unavailable in the local environment, so a registry-backed advisory scan has not been completed.
+
 ## 1. Product summary
 
 HyperDex is a local-first native desktop editor for making music-synchronised videos. Users import a song and local video footage, run staged analysis, receive an editable first cut, refine the timeline and export a finished MP4. The product is intentionally narrower than a general professional non-linear editor. Media remains on the user's machine.
@@ -77,9 +79,8 @@ The transition work is split into two distinct parts:
 The following remain planned or incomplete. Do not describe them as supported end-to-end:
 
 - Preview playback driven by the same timeline schedule and renderer as export.
-- Audio-item placement is exposed in Edit. The renderer accepts decoded stereo PCM for placed Audio-track items and mixes it with the selected-song bed. Placed clips follow the compressed video timeline while the song remains on output time. However, the current desktop worker calls `render_timeline_with_audio` rather than `render_timeline_with_audio_items`, so the app does not yet supply placed audio assets. Run #95 verifies the renderer-side mixer, not end-to-end desktop audio-track export.
+- Audio-item placement is exposed in Edit and now works through the desktop export worker. The worker validates the project, decodes each referenced audio asset once, and supplies placed stereo PCM to the renderer. The app-worker MP4 test verifies silence before and audio during the placed-item interval. Per-item/track gain, fades, loudness normalization and a dedicated limiter remain incomplete.
 - Audio captured from source video clips.
-- App-level mixing of placed audio-track items; per-item/track gain, fades, loudness normalization and a dedicated limiter.
 - Per-clip and track-level full-timeline effects.
 - Shared preview/export cache keys and complete cache invalidation.
 - Atomic temporary-file finalization for exports.
@@ -87,12 +88,12 @@ The following remain planned or incomplete. Do not describe them as supported en
 - Physical Windows acceptance on clean machines and a representative hardware matrix.
 - FFmpeg and transitive-library licensing review before public binary redistribution.
 
-The HyperDex Edit UI has a video clip editor plus a separate audio-track placement list. Audio items can be appended, muted and removed, but freeform audio drag placement is not implemented. Although the renderer can mix audio-track items, the current app export worker does not call that renderer entry point, so placed audio is not yet audible in desktop MP4 exports.
+The HyperDex Edit UI has a video clip editor plus a separate audio-track placement list. Audio items can be appended, muted and removed, but freeform audio drag placement is not implemented. Desktop MP4 export now decodes and mixes placed audio-track items through the renderer mixer.
 
 ## 5. Verification and release status
 
 - Multi-track exporter: verified by Windows CI run #81, including workspace tests and packaging.
-- Renderer-side stereo audio-item mixer: verified by Windows CI run #95, including workspace tests, release build and Windows packaging. App export wiring for placed items remains incomplete.
+- Renderer-side stereo audio-item mixer: verified by Windows CI run #95. Desktop worker wiring and placed-audio timing pass local Windows integration tests; full Windows CI and packaging for the updated path are pending.
 - Schema-4 transition model: passed the complete Windows CI pipeline in run #85.
 - Full-timeline transition export: MP4 integration tests and the complete Windows workflow passed in run #91.
 - Edit-page transition controls: Core command integration and AppState tests passed the complete Windows workflow in run #92.
@@ -103,10 +104,11 @@ The HyperDex Edit UI has a video clip editor plus a separate audio-track placeme
 
 ## 6. Recommended next implementation sequence
 
-1. Restore a successful Windows runner execution for the current `main` head. Runs #96–#99 failed before workflow steps started; the latest records show runner ID `0` and no logs, so there is no source failure to correct from those runs.
-2. Complete the missing desktop export wiring for the existing audio-item mixer: decode each unique asset referenced by visible, unmuted Audio tracks, pass `StereoAudioAssetInput` values to `render_timeline_with_audio_items`, and add app-level MP4 decode tests for song-plus-placed-audio and placed-audio-only exports.
-3. Add source-video audio, then per-item/track gain, fades, normalization and a dedicated limiter, with decoded-MP4 tests.
-4. Implement preview/export parity using the same timeline schedule, transition map, video stack and audio mixer.
+1. Confirm successful Windows CI and packaging on the updated `main` commit; previous runs #96–#100 failed before workflow steps ran.
+2. Complete interactive Windows smoke testing, especially exports with selected-song plus placed-audio and placed-audio only.
+3. Add source-video audio, per-item/track gain, fades, normalization and a dedicated limiter, with decoded-MP4 tests.
+4. Complete the FFmpeg and transitive-library licensing review before public binary redistribution.
+5. Implement preview/export parity using the same timeline schedule, transition map, video stack and audio mixer.
 
 Avoid beginning preview parity or cache redesign until the timeline transition interpretation is stable. Do not introduce simultaneous transition overlaps across different video tracks without an explicit compositing and timeline-mapping design.
 

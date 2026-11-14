@@ -283,9 +283,9 @@ fn rejected_command_leaves_project_unchanged() {
         track_id: 10,
         item: clashing,
     });
-    let (returned, error) = result.err().expect("command must be rejected");
+    let (returned, error) = result.expect_err("command must be rejected");
     assert!(matches!(error, hyperdex_core::CommandError::Invalid(_)));
-    assert_eq!(returned, before, "the original project comes back untouched");
+    assert_eq!(*returned, before, "the original project comes back untouched");
 }
 
 #[test]

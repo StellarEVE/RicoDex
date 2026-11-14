@@ -1771,6 +1771,87 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "hyperdex-app"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "eframe",
+ "egui",
+ "hyperdex-audio",
+ "hyperdex-core",
+ "hyperdex-engine",
+ "hyperdex-media",
+ "hyperdex-render",
+ "png",
+ "rfd",
+]
+
+[[package]]
+name = "hyperdex-audio"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "hyperdex-core",
+ "num-complex",
+ "realfft",
+ "symphonia",
+]
+
+[[package]]
+name = "hyperdex-cli"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "hyperdex-core",
+]
+
+[[package]]
+name = "hyperdex-core"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hyperdex-engine"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "hyperdex-audio",
+ "hyperdex-core",
+ "hyperdex-media",
+]
+
+[[package]]
+name = "hyperdex-media"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "hyperdex-core",
+ "hyperdex-platform",
+ "png",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hyperdex-platform"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "hyperdex-core",
+ "rsmpeg",
+]
+
+[[package]]
+name = "hyperdex-render"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "hyperdex-audio",
+ "hyperdex-core",
+ "hyperdex-platform",
+ "pollster 0.3.0",
+ "serde",
+ "serde_json",
+ "wgpu 0.20.1",
+]
+
+[[package]]
 name = "icu_collections"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2953,86 +3034,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "hyperdex-app"
-version = "0.1.0-alpha.9"
-dependencies = [
- "eframe",
- "egui",
- "hyperdex-audio",
- "hyperdex-core",
- "hyperdex-engine",
- "hyperdex-media",
- "hyperdex-render",
- "png",
- "rfd",
-]
-
-[[package]]
-name = "hyperdex-audio"
-version = "0.1.0-alpha.9"
-dependencies = [
- "num-complex",
- "hyperdex-core",
- "realfft",
- "symphonia",
-]
-
-[[package]]
-name = "hyperdex-cli"
-version = "0.1.0-alpha.9"
-dependencies = [
- "hyperdex-core",
-]
-
-[[package]]
-name = "hyperdex-core"
-version = "0.1.0-alpha.9"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "hyperdex-engine"
-version = "0.1.0-alpha.9"
-dependencies = [
- "hyperdex-audio",
- "hyperdex-core",
- "hyperdex-media",
-]
-
-[[package]]
-name = "hyperdex-media"
-version = "0.1.0-alpha.9"
-dependencies = [
- "hyperdex-core",
- "hyperdex-platform",
- "png",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "hyperdex-platform"
-version = "0.1.0-alpha.9"
-dependencies = [
- "hyperdex-core",
- "rsmpeg",
-]
-
-[[package]]
-name = "hyperdex-render"
-version = "0.1.0-alpha.9"
-dependencies = [
- "hyperdex-core",
- "hyperdex-platform",
- "pollster 0.3.0",
- "serde",
- "serde_json",
- "wgpu 0.20.1",
-]
-
-[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3361,8 +3362,6 @@ dependencies = [
 [[package]]
 name = "rsmpeg"
 version = "0.18.0+ffmpeg.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "523351495c9ff0bf4b99ed1f42f1415fc709526ddb63526cff85022b387c5811"
 dependencies = [
  "bon",
  "paste",

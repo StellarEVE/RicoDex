@@ -9,7 +9,7 @@
 //! when a cancel lands during one, the workers stop at the next
 //! boundary and report Cancelled instead of the stage result.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -254,49 +254,96 @@ pub fn run_export(project: Project, output_path: PathBuf, tx: Sender<ExportMsg>)
         let _ = tx.send(ExportMsg::Progress { fraction });
     };
 
-    // The selected song is the soundtrack for this export slice. Decode
-    // it here, at the App orchestration boundary, then pass plain stereo
-    // PCM to Render. Projects without a selected song remain video-only.
-    let result = match project.song_asset_id {
-        Some(song_id) => match project.assets.iter().find(|asset| asset.id == song_id) {
-            Some(asset) if asset.kind == AssetKind::Audio => {
-                let path = PathBuf::from(&asset.path_hint);
-                match hyperdex_audio::decode_stereo_file(&path) {
-                    Ok(decoded) => hyperdex_render::render_timeline_with_audio(
-                        &project,
-                        &output_path,
-                        Some(hyperdex_render::StereoAudioInput {
-                            interleaved_samples: &decoded.samples,
-                            sample_rate: decoded.sample_rate,
-                        }),
-                        &mut progress,
-                    ),
-                    Err(error) => {
-                        let _ = tx.send(ExportMsg::Failed {
-                            message: format!("selected song could not be decoded: {error}"),
-                        });
-                        return;
-                    }
-                }
+    if let Err(error) = project.validate() {
+        let _ = tx.send(ExportMsg::Failed {
+            message: format!("project is invalid: {error}"),
+        });
+        return;
+    }
+
+    // Decode each audio asset used by the selected song or audible Audio
+    // track exactly once. Keep decoding at the App boundary and pass only
+    // plain stereo PCM into Render.
+    let assets_by_id: HashMap<_, _> = project.assets.iter().map(|asset| (asset.id, asset)).collect();
+    let mut asset_ids = BTreeSet::new();
+    let mut has_audio_track_items = false;
+    if let Some(song_id) = project.song_asset_id {
+        asset_ids.insert(song_id);
+    }
+    for track in project.tracks.iter().filter(|track| {
+        track.kind == hyperdex_core::TrackKind::Audio && !track.hidden && !track.muted
+    }) {
+        if let Some(items) = project.items(track.id) {
+            for item in items.iter().filter(|item| item.enabled) {
+                has_audio_track_items = true;
+                asset_ids.insert(item.asset_id);
             }
-            Some(_) => {
+        }
+    }
+
+    let mut decoded_assets = Vec::with_capacity(asset_ids.len());
+    for asset_id in asset_ids {
+        let Some(asset) = assets_by_id.get(&asset_id).copied() else {
+            let message = if project.song_asset_id == Some(asset_id) {
+                format!("selected song asset {asset_id} is missing from the project")
+            } else {
+                format!("audio item references missing asset {asset_id}")
+            };
+            let _ = tx.send(ExportMsg::Failed { message });
+            return;
+        };
+        if asset.kind != AssetKind::Audio {
+            let message = if project.song_asset_id == Some(asset_id) {
+                "selected song asset is not audio".to_string()
+            } else {
+                format!("audio track asset {asset_id} is not audio")
+            };
+            let _ = tx.send(ExportMsg::Failed { message });
+            return;
+        }
+        match hyperdex_audio::decode_stereo_file(&PathBuf::from(&asset.path_hint)) {
+            Ok(decoded) => decoded_assets.push((asset_id, decoded)),
+            Err(error) => {
+                let label = if project.song_asset_id == Some(asset_id) {
+                    "selected song"
+                } else {
+                    "audio track asset"
+                };
                 let _ = tx.send(ExportMsg::Failed {
-                    message: "selected song asset is not audio".to_string(),
+                    message: format!("{label} {asset_id} could not be decoded: {error}"),
                 });
                 return;
             }
-            None => {
-                let _ = tx.send(ExportMsg::Failed {
-                    message: format!("selected song asset {song_id} is missing from the project"),
-                });
-                return;
-            }
-        },
-        None => hyperdex_render::render_timeline(
+        }
+    }
+
+    let audio_track_inputs: Vec<_> = decoded_assets
+        .iter()
+        .map(|(asset_id, decoded)| hyperdex_render::StereoAudioAssetInput {
+            asset_id: *asset_id,
+            interleaved_samples: &decoded.samples,
+            sample_rate: decoded.sample_rate,
+        })
+        .collect();
+    let song_input = project.song_asset_id.and_then(|song_id| {
+        decoded_assets
+            .iter()
+            .find(|(asset_id, _)| *asset_id == song_id)
+            .map(|(_, decoded)| hyperdex_render::StereoAudioInput {
+                interleaved_samples: &decoded.samples,
+                sample_rate: decoded.sample_rate,
+            })
+    });
+    let result = if song_input.is_some() || has_audio_track_items {
+        hyperdex_render::render_timeline_with_audio_items(
             &project,
             &output_path,
+            song_input,
+            &audio_track_inputs,
             &mut progress,
-        ),
+        )
+    } else {
+        hyperdex_render::render_timeline(&project, &output_path, &mut progress)
     };
 
     match result {
@@ -312,5 +359,111 @@ pub fn run_export(project: Project, output_path: PathBuf, tx: Sender<ExportMsg>)
                 message: e.to_string(),
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hyperdex_core::{Asset, Fingerprint, Item, Tick, Track, TrackKind};
+
+    fn run_ffmpeg(args: &[&str]) {
+        let executable = std::env::var_os("HYPERDEX_TEST_FFMPEG")
+            .unwrap_or_else(|| "ffmpeg".into());
+        let status = std::process::Command::new(executable)
+            .args(args)
+            .status()
+            .expect("run ffmpeg fixture generator");
+        assert!(status.success(), "ffmpeg fixture generation failed: {args:?}");
+    }
+
+    #[test]
+    fn export_worker_mixes_audio_track_items_into_the_mp4() {
+        let dir = std::env::temp_dir().join(format!(
+            "hyperdex-app-export-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let video_path = dir.join("video.mp4");
+        let audio_path = dir.join("audio.wav");
+        let output_path = dir.join("export.mp4");
+        run_ffmpeg(&[
+            "-y", "-v", "error", "-f", "lavfi", "-i",
+            "color=c=blue:s=64x64:r=10:d=1", "-c:v", "libx264", "-pix_fmt",
+            "yuv420p", "-an", video_path.to_str().unwrap(),
+        ]);
+        run_ffmpeg(&[
+            "-y", "-v", "error", "-f", "lavfi", "-i",
+            "sine=frequency=880:sample_rate=44100:duration=1", "-ac", "2",
+            "-c:a", "pcm_s16le", audio_path.to_str().unwrap(),
+        ]);
+
+        let mut project = Project::new();
+        project.export_settings.width = 64;
+        project.export_settings.height = 64;
+        project.export_settings.frame_rate_num = 10;
+        project.assets.extend([
+            Asset {
+                id: 1,
+                fingerprint: Fingerprint::new(1, 1, 1, 1),
+                path_hint: video_path.to_string_lossy().into_owned(),
+                kind: AssetKind::Video,
+                duration: Tick::from_seconds(1.0),
+                intro_trim: Tick::ZERO,
+                outro_trim: Tick::ZERO,
+            },
+            Asset {
+                id: 2,
+                fingerprint: Fingerprint::new(2, 2, 2, 2),
+                path_hint: audio_path.to_string_lossy().into_owned(),
+                kind: AssetKind::Audio,
+                duration: Tick::from_seconds(1.0),
+                intro_trim: Tick::ZERO,
+                outro_trim: Tick::ZERO,
+            },
+        ]);
+        project.add_track(Track::new(1, TrackKind::Video, "V1"));
+        project.add_track(Track::new(2, TrackKind::Audio, "A1"));
+        project.items_mut(1).unwrap().push(Item::new(
+            1,
+            1,
+            Tick::ZERO,
+            Tick::from_seconds(1.0),
+            Tick::ZERO,
+        ));
+        project.items_mut(2).unwrap().push(Item::new(
+            2,
+            2,
+            Tick::from_seconds(0.25),
+            Tick::from_seconds(0.5),
+            Tick::ZERO,
+        ));
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        run_export(project, output_path.clone(), tx);
+        loop {
+            match rx.recv().unwrap() {
+                ExportMsg::Progress { .. } => {}
+                ExportMsg::Finished { .. } => break,
+                ExportMsg::Failed { message } => panic!("app export failed: {message}"),
+            }
+        }
+
+        let exported = hyperdex_audio::decode_stereo_file(&output_path)
+            .expect("app export should contain decodable AAC audio");
+        assert_eq!(exported.sample_rate, 48_000);
+        let rms = |start: usize, end: usize| {
+            let samples = &exported.samples[start * 2..end * 2];
+            (samples.iter().map(|sample| sample * sample).sum::<f32>()
+                / samples.len() as f32)
+                .sqrt()
+        };
+        let before_item = rms(0, 4_800);
+        let during_item = rms(14_400, 19_200);
+        assert!(before_item < 0.01, "unexpected audio before item: {before_item}");
+        assert!(during_item > 0.05, "audio track item was missing: {during_item}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

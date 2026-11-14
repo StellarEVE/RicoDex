@@ -8,9 +8,7 @@ HyperDex is an early-stage project, not a finished or production-ready editor. I
 
 ## Current project status
 
-HyperDex has a working local-first analysis, editing, project-persistence and export foundation. The latest verified renderer milestone includes transition-aware multi-track video composition and stereo mixing of placed audio-track items with the selected-song bed. Windows CI run #95 passed workspace tests, release build and Windows packaging for the renderer-side audio mixer. The Edit page supports transition controls and audio-track placement with undo/redo. However, the desktop export worker still calls the selected-song-only renderer entry point and does not pass decoded audio-track items to the mixer; placed audio items are therefore not yet audible in exports produced by the app. Windows CI runs #96–#100 failed before any workflow step started; runs #96–#99 report runner ID 0, and run #100 also has no steps or downloadable logs. The renamed workspace still needs a successful full Windows run. CI does not replace interactive testing on a real Windows desktop.
-
-The current main branch contains the persisted schema-4 transition model, a transition-aware multi-track exporter, Edit-page transition controls and a renderer API for mixing placed audio items. Core enforces Audio/Video asset compatibility, and track creation is an undoable Core command. The shared integer-Tick transition map compresses each outgoing/incoming source region into one output interval, maps other tracks through the same clock, accumulates sequential transitions and rejects overlapping cross-track regions. The renderer can mix placed audio items on the compressed timeline while the selected-song bed remains at normal output speed. However, `hyperdex-app::jobs::run_export` currently calls `render_timeline_with_audio`, which does not pass placed audio assets. The app-level audio-track export integration remains unfinished; run #95 verifies the renderer-side mixer and full Windows packaging, not that missing app wiring. Windows CI runs #96–#99 failed before any workflow steps ran, and provide no evidence of a source compilation failure.
+HyperDex has a working local-first analysis, editing, project-persistence and export foundation. The app export worker validates the project, decodes each referenced audio asset once and passes selected-song and enabled audio-track items to the renderer. A Windows app-worker MP4 integration test verifies the placed item's audio interval. The FFmpeg 8.1 binding and MSVC compatibility patch compile locally. Full Windows CI and packaging for these changes, plus interactive desktop acceptance, remain outstanding.
 
 The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
 
@@ -31,7 +29,7 @@ The Windows desktop acceptance checklist, broader hardware validation, and FFmpe
 - Drag clips to reorder them.
 - Pin clips and use undo/redo.
 - Set, change and clear incoming transitions using the Edit inspector. Transition type and duration edits use Core commands and support undo/redo.
-- Create audio tracks, append imported audio files as timeline items, mute tracks and remove items. These placements are saved through Core command history. The renderer API can mix decoded audio items into stereo AAC alongside the optional selected-song bed. The desktop export worker is not yet wired to supply those decoded assets, so app-export audio-track playback remains incomplete.
+- Create audio tracks, append imported audio files as timeline items, mute tracks and remove items. These placements are saved through Core command history. Desktop export mixes enabled items from visible, unmuted audio tracks into stereo AAC alongside the optional selected-song bed. The app worker's MP4 integration test checks audio placement timing.
 - Core supports validated, undoable audio-track creation and rejects audio/video asset mismatches. In the renderer API, placed audio is mixed only from visible, unmuted tracks and enabled items; the selected-song bed remains at normal output speed.
 - Route timeline edits through Core validation, commands, and snapshot history.
 
@@ -94,7 +92,6 @@ The internal crates and binaries use the `hyperdex-*` naming convention. The ful
 
 - A stable Rust toolchain.
 - FFmpeg 8.1 shared development files compatible with the workspace's `rsmpeg` bindings, including headers, import libraries, and runtime DLLs.
-- LLVM/Clang with `libclang` available for bindgen.
 - On Windows, use the environment-variable layout shown in [the Windows CI workflow](.github/workflows/ci.yml).
 
 ### Windows environment
@@ -104,9 +101,14 @@ Set the following variables to the corresponding paths in your FFmpeg and LLVM i
 ```powershell
 $env:FFMPEG_DLL_PATH = "C:\path\to\ffmpeg\lib"
 $env:FFMPEG_INCLUDE_DIR = "C:\path\to\ffmpeg\include"
-$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+$env:FFMPEG_BINDING_PATH = "$PWD\vendor\ffmpeg8_1_binding.rs"
 $env:Path = "C:\path\to\ffmpeg\bin;$env:Path"
 ```
+
+The workspace pins a generated Windows-compatible FFmpeg 8.1 binding so
+local builds and CI use the same ABI layout. The small `rsmpeg` patch fixes
+the MSVC enum argument conversion used by that binding; see
+[`vendor/README.md`](vendor/README.md).
 
 Then run the workspace checks and release build:
 

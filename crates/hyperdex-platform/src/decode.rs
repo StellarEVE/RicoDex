@@ -213,11 +213,7 @@ impl VideoDecoder {
                             if packet.stream_index == self.video_index as i32 {
                                 match self.decoder.send_packet(Some(&packet)) {
                                     Ok(()) => {}
-                                    Err(se)
-                                        if matches!(
-                                            se,
-                                            RsmpegError::DecoderFullError
-                                        ) => {}
+                                    Err(RsmpegError::DecoderFullError) => {}
                                     Err(se) => return Err(se.into()),
                                 }
                             }
@@ -524,15 +520,10 @@ fn trial_decode_hardware(path: &Path, name: &str) -> TrialDecodeReport {
     // requested device type.
     let mut hw_pix_fmt = ffi::AV_PIX_FMT_NONE;
     let mut index = 0;
-    loop {
-        match codec.hw_config(index) {
-            Some(config) => {
-                if config.device_type == device_type {
-                    hw_pix_fmt = config.pix_fmt;
-                    break;
-                }
-            }
-            None => break,
+    while let Some(config) = codec.hw_config(index) {
+        if config.device_type == device_type {
+            hw_pix_fmt = config.pix_fmt;
+            break;
         }
         index += 1;
     }

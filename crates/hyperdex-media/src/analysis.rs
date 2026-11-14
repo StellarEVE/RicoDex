@@ -171,8 +171,8 @@ fn scene_spans(scored: &[ScoredFrame], duration: Tick) -> Vec<SceneSpan> {
 fn scene_motion(scored: &[ScoredFrame], span: &SceneSpan) -> f32 {
     let mut sum = 0.0f32;
     let mut count = 0usize;
-    for i in (span.first + 1)..span.last {
-        sum += scored[i].1.diff_from_prev.unwrap_or(0.0);
+    for frame in scored.iter().take(span.last).skip(span.first + 1) {
+        sum += frame.1.diff_from_prev.unwrap_or(0.0);
         count += 1;
     }
     if count == 0 {

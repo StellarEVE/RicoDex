@@ -496,8 +496,8 @@ fn compute_slots(grid: &BeatGrid, settings: &PlannerSettings, rng: &mut Rng) -> 
             + rng.next_f64() * (max_clip.as_ticks() - min_clip.as_ticks()) as f64;
         let mut chosen = i + 1;
         let mut best_diff = f64::INFINITY;
-        for j in i + 1..points.len() {
-            let dur = points[j] - start;
+        for (j, point) in points.iter().enumerate().skip(i + 1) {
+            let dur = *point - start;
             if dur > max_clip && j > i + 1 {
                 break;
             }
@@ -619,12 +619,11 @@ fn score_window(
         0.0
     };
     let mut score = 1.2 * coverage;
-    match best_scene {
-        Some(scene) => match scene.motion {
+    if let Some(scene) = best_scene {
+        match scene.motion {
             Some(motion) => score += 0.9 * motion as f64,
             None => score += 0.25,
-        },
-        None => {}
+        }
     }
     let half = Tick::from_ticks(duration.as_ticks() / 2);
     let best_moment = source

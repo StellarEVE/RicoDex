@@ -82,7 +82,7 @@ fn apply_one(frame: &Frame, effect: &EffectOp) -> Frame {
 /// channels available for context; alpha passes through.
 fn per_channel(frame: &Frame, f: impl Fn(f32, &[u8]) -> f32) -> Frame {
     let mut pixels = frame.pixels.clone();
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let original = [pixel[0], pixel[1], pixel[2], pixel[3]];
         for channel in 0..3 {
             pixel[channel] = round_u8(f(original[channel] as f32, &original));
@@ -97,7 +97,7 @@ fn per_channel(frame: &Frame, f: impl Fn(f32, &[u8]) -> f32) -> Frame {
 
 fn saturation(frame: &Frame, factor: f32) -> Frame {
     let mut pixels = frame.pixels.clone();
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let (r, g, b) = (
             pixel[0] as f32,
             pixel[1] as f32,
@@ -144,8 +144,8 @@ fn blur_pass(frame: &Frame, radius: u32, horizontal: bool) -> Frame {
                     (x, (y + k).clamp(0, h - 1))
                 };
                 let offset = (sy as usize * frame.width as usize + sx as usize) * 4;
-                for channel in 0..4 {
-                    sum[channel] += frame.pixels[offset + channel] as f32;
+                for (channel, total) in sum.iter_mut().enumerate() {
+                    *total += frame.pixels[offset + channel] as f32;
                 }
             }
             let offset = (y as usize * frame.width as usize + x as usize) * 4;
@@ -172,8 +172,9 @@ fn sharpen(frame: &Frame, amount: f32) -> Frame {
     let blurred = box_blur(frame, 1);
     let mut pixels = frame.pixels.clone();
     for (pixel, soft) in pixels
-        .chunks_exact_mut(4)
-        .zip(blurred.pixels.chunks_exact(4))
+        .as_chunks_mut::<4>().0
+        .iter_mut()
+        .zip(blurred.pixels.as_chunks::<4>().0)
     {
         for channel in 0..3 {
             let value = pixel[channel] as f32;

@@ -1170,10 +1170,10 @@ impl AppState {
         self.is_dirty = true;
 
         match command {
-            Command::RippleRemoveItem { item_id } | Command::RemoveItem { item_id } => {
-                if self.selected_item == Some(*item_id) {
-                    self.selected_item = None;
-                }
+            Command::RippleRemoveItem { item_id } | Command::RemoveItem { item_id }
+                if self.selected_item == Some(*item_id) =>
+            {
+                self.selected_item = None;
             }
             _ => {}
         }
@@ -1213,14 +1213,6 @@ impl AppState {
         self.refresh_clip_flags();
         self.is_dirty = true;
         true
-    }
-
-    pub fn asset_path(&self, asset_id: AssetId) -> Option<&std::path::Path> {
-        self.project
-            .assets
-            .iter()
-            .find(|asset| asset.id == asset_id)
-            .map(|asset| std::path::Path::new(&asset.path_hint))
     }
 
     pub fn asset_duration(&self, asset_id: AssetId) -> Option<Tick> {
