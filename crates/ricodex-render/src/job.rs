@@ -475,6 +475,57 @@ pub fn render_sequential_with_audio(
 
     let mut written = 0usize;
     let mut audio_cursor = 0usize;
+    let black_frame = Frame::solid(width, height, [0, 0, 0, 255]);
+    let mut emit_frame = |frame: &Frame| -> Result<(), RenderError> {
+        encoder.encode_rgb24(&frame.to_rgb24())?;
+        written += 1;
+
+        if let Some(input) = audio {
+            // Derive audio boundaries from the shared output frame count.
+            let next_sample = ((written as i128
+                * OUTPUT_AUDIO_RATE as i128
+                * fps_den as i128)
+                / fps_num as i128)
+                .max(0) as usize;
+            let audio_end = next_sample.min(total_audio_samples);
+            if audio_end > audio_cursor {
+                let source_frames = input.interleaved_samples.len() / 2;
+                let mut chunk = Vec::with_capacity((audio_end - audio_cursor) * 2);
+                for output_sample in audio_cursor..audio_end {
+                    let source_numerator =
+                        output_sample as u128 * input.sample_rate as u128;
+                    let source_index =
+                        (source_numerator / OUTPUT_AUDIO_RATE as u128) as usize;
+                    let remainder =
+                        (source_numerator % OUTPUT_AUDIO_RATE as u128) as f32;
+                    let fraction = remainder / OUTPUT_AUDIO_RATE as f32;
+                    for channel in 0..2 {
+                        let a = if source_index < source_frames {
+                            input.interleaved_samples[source_index * 2 + channel]
+                        } else {
+                            0.0
+                        };
+                        let b = if source_index + 1 < source_frames {
+                            input.interleaved_samples[(source_index + 1) * 2 + channel]
+                        } else {
+                            0.0
+                        };
+                        chunk.push(a + (b - a) * fraction);
+                    }
+                }
+                encoder.encode_stereo_audio(&chunk)?;
+                audio_cursor = audio_end;
+            }
+        }
+
+        progress(written as f32 / total_frames as f32);
+        Ok(())
+    };
+
+    // The shared schedule is consumed exactly once from the first enabled
+    // clip to the last. Any uncovered interval, including the interval left
+    // by a disabled clip, is encoded as black rather than collapsed.
+    let mut next_output_index = 0usize;
     for item in &items {
         let asset = project
             .assets
@@ -487,19 +538,23 @@ pub fn render_sequential_with_audio(
         let mut decoder = VideoDecoder::open(&path)?;
         decoder.seek(item.source_in)?;
 
-        // Sample this clip only at timestamps from the shared project
-        // schedule. Clip boundaries therefore cannot accumulate separate
-        // per-clip frame-rounding errors.
         let mut last: Option<Frame> = None;
         let mut pending: Option<(Tick, Frame)> = None;
         let mut exhausted = false;
-        for frame_index in 0..total_frames {
-            let timeline_time = schedule.frame_time(frame_index as u64)
+        while next_output_index < total_frames {
+            let timeline_time = schedule.frame_time(next_output_index as u64)
                 .expect("frame index is bounded by the schedule")
                 .time;
-            if timeline_time < item.start || timeline_time >= item.end() {
+
+            if timeline_time < item.start {
+                emit_frame(&black_frame)?;
+                next_output_index += 1;
                 continue;
             }
+            if timeline_time >= item.end() {
+                break;
+            }
+
             let target = item.source_in + (timeline_time - item.start);
             loop {
                 if let Some((time, _)) = &pending {
@@ -545,52 +600,11 @@ pub fn render_sequential_with_audio(
             let frame = last.clone().ok_or_else(|| RenderError::BadProject {
                 reason: format!("decoder produced no frames for {}", path.display()),
             })?;
-            encoder.encode_rgb24(&frame.to_rgb24())?;
-            written += 1;
-
-            if let Some(input) = audio {
-                // Derive the audio boundary from the absolute output
-                // frame index using integer rational arithmetic. This
-                // avoids accumulating per-frame rounding drift.
-                let next_sample = ((written as i128
-                    * OUTPUT_AUDIO_RATE as i128
-                    * fps_den as i128)
-                    / fps_num as i128)
-                    .max(0) as usize;
-                let audio_end = next_sample.min(total_audio_samples);
-                if audio_end > audio_cursor {
-                    let source_frames = input.interleaved_samples.len() / 2;
-                    let mut chunk = Vec::with_capacity((audio_end - audio_cursor) * 2);
-                    for output_sample in audio_cursor..audio_end {
-                        let source_numerator =
-                            output_sample as u128 * input.sample_rate as u128;
-                        let source_index =
-                            (source_numerator / OUTPUT_AUDIO_RATE as u128) as usize;
-                        let remainder =
-                            (source_numerator % OUTPUT_AUDIO_RATE as u128) as f32;
-                        let fraction = remainder / OUTPUT_AUDIO_RATE as f32;
-                        for channel in 0..2 {
-                            let a = if source_index < source_frames {
-                                input.interleaved_samples[source_index * 2 + channel]
-                            } else {
-                                0.0
-                            };
-                            let b = if source_index + 1 < source_frames {
-                                input.interleaved_samples[(source_index + 1) * 2 + channel]
-                            } else {
-                                0.0
-                            };
-                            chunk.push(a + (b - a) * fraction);
-                        }
-                    }
-                    encoder.encode_stereo_audio(&chunk)?;
-                    audio_cursor = audio_end;
-                }
-            }
-
-            progress(written as f32 / total_frames as f32);
+            emit_frame(&frame)?;
+            next_output_index += 1;
         }
     }
+    drop(emit_frame);
     encoder.finish()?;
 
     Ok(SequentialOutcome {
