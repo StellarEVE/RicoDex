@@ -3,13 +3,16 @@
 **Status date:** 14 November 2026  
 **Repository:** https://github.com/StellarEVE/HyperDex  
 **Working branch:** `main`  
-**Application source last changed:** `fd5e2089f70d458dddd34653c128e9cbabcba267`. The latest code-and-CI policy commit at the time of this update is `b2baf3a0eaaffbcac389cae2e438c4c21b59c0bd`. Earlier complete Windows CI milestones include schema-4 validation (#85), transition mapping (#90), full-timeline transition export (#91), Edit-page transition controls (#92), Core audio-track validation (#93), audio placement (#94), and renderer-side stereo mixing (#95). Run [#103, attempt 2](https://github.com/StellarEVE/HyperDex/actions/runs/43609816703) passed for commit `2ddd85a`; run [#104](https://github.com/StellarEVE/HyperDex/actions/runs/43614319131) passed for commit `211d6ad`. Both completed workspace tests, release build, Windows dependency staging, portable ZIP creation, installer creation and artifact upload. The latest CI-policy commit is being validated by [run #105](https://github.com/StellarEVE/HyperDex/actions/runs/43616779547). The repository is public and hosted Windows runners are executing.
+**Current main head:** `9dca8e9b3772cedac6450d3c2900f6235a6ff6cd`  
+**Latest application-source milestone:** `fd5e2089f70d458dddd34653c128e9cbabcba267`  
+**Latest full Windows package verification:** [run #104](https://github.com/StellarEVE/HyperDex/actions/runs/43614319131), commit `211d6ad73cfbe40aaef05af19b98260eabbb3ca1`. It passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload.  
+**Latest ordinary CI-policy verification:** [run #106](https://github.com/StellarEVE/HyperDex/actions/runs/43616944483), commit `9dca8e9b3772cedac6450d3c2900f6235a6ff6cd`. Workspace tests and release build passed; packaging and artifact upload were skipped as intended.
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
-**Recorded local verification (owner-reported):** Windows `cargo test --locked --workspace` passes all 128 tests, strict Clippy passes with `-D warnings`, and `cargo build --locked --release --workspace` succeeds against FFmpeg 8.1.3. The app-worker MP4 test verifies placed-audio timing. These local checks were not independently reproduced in this review. The same application source subsequently passed full Windows CI in run #104. Interactive desktop smoke testing and formal transitive-library licensing review remain pending. `cargo audit` is unavailable in the recorded local environment, and GitHub Dependabot alerts are disabled, so a registry-backed advisory scan has not been completed.
+**Recorded local verification (owner-reported):** Windows `cargo test --locked --workspace` passes all 128 tests, strict Clippy passes with `-D warnings`, and `cargo build --locked --release --workspace` succeeds against FFmpeg 8.1.3. These local checks were not independently reproduced in this review. The app-worker MP4 test verifies placed-audio timing, and the same application source subsequently passed full Windows CI in run #104. Interactive desktop smoke testing and formal transitive-library licensing review remain pending. `cargo audit` was unavailable in the recorded local environment, and GitHub Dependabot alerts were disabled, so a registry-backed advisory scan has not been completed.
 
-**CI storage snapshot:** The previous 14-day artifact policy generated 39 package artifacts of approximately 175 MiB each, or about 6.7 GiB total. Run #104 contains the newest fully validated package. Keep that package only while useful and delete the 38 superseded artifacts. The workflow now separates normal validation from packaging: push/PR runs execute tests and a release build without creating binary artifacts. A package is created only through manual dispatch with `package_windows=true`, and new artifacts are retained for 3 days. Existing artifacts are not retroactively affected by the shorter retention setting.
+**CI storage snapshot:** One fully validated Windows package is currently retained: artifact `14121717047`, named `HyperDexStudio-Windows-packages-211d6ad73cfbe40aaef05af19b98260eabbb3ca1`, size 183,397,750 bytes. It belongs to run #104 and commit `211d6ad`, not the newer CI-policy commit. Superseded artifacts have been deleted. The current workflow retains newly created package artifacts for 3 days; this does not retroactively change existing artifact retention.
 
 ## 1. Product summary
 
@@ -95,19 +98,19 @@ The HyperDex Edit UI has a video clip editor plus a separate audio-track placeme
 ## 5. Verification and release status
 
 - Multi-track exporter: verified by Windows CI run #81, including workspace tests and packaging.
-- Renderer-side stereo audio-item mixer: verified by Windows CI run #95. Desktop worker wiring and placed-audio timing pass local Windows integration tests; full Windows CI and packaging for the updated path are pending.
+- Renderer-side stereo audio-item mixer: verified by Windows CI run #95. Desktop worker wiring and placed-audio timing are covered by the full Windows CI and packaging pass in run #104 for commit `211d6ad`.
 - Schema-4 transition model: passed the complete Windows CI pipeline in run #85.
 - Full-timeline transition export: MP4 integration tests and the complete Windows workflow passed in run #91.
 - Edit-page transition controls: Core command integration and AppState tests passed the complete Windows workflow in run #92.
 - Previous CI runs #83 and #84 failed during the first transition-model test pass. Run #83 exposed a stale test type name; run #84 exposed validation error-ordering in the transition-limit test. The stale test type was corrected, and commit `67ae474` moves transition-region aggregate validation after individual transition validation. The complete validation workflow passed in run #85.
-- Windows CI builds and packages the application, but it does not establish clean-machine interactive acceptance or hardware performance. Run #102 did not start, so it gives no build/test result for the current commit.
+- Windows CI does not establish clean-machine interactive acceptance or hardware performance. Run #106 confirms the current ordinary CI path passes tests and the release build while skipping packaging. The manual packaging path under the revised workflow has not yet been separately exercised.
 - The Windows smoke-test checklist is `docs/WINDOWS_SMOKE_TEST.md`.
 - The CI artifact is a validation package, not an approved public release. See `docs/LICENSING.md`.
 
 ## 6. Recommended next implementation sequence
 
-1. Validate the revised CI policy on the next code milestone: confirm ordinary push/PR runs complete tests and release builds without packaging or artifact upload. Confirm manual dispatch with `package_windows=true` still creates a usable package.
-2. Complete interactive Windows smoke testing, especially exports with selected-song plus placed-audio and placed-audio only.
+1. Complete interactive Windows smoke testing, especially exports with selected-song plus placed-audio and placed-audio only.
+2. When a new Windows package is needed, manually dispatch the workflow with `package_windows=true` and verify the resulting ZIP/installer. Ordinary CI path verification is complete in run #106.
 3. Add source-video audio, per-item/track gain, fades, normalization and a dedicated limiter, with decoded-MP4 tests.
 4. Complete the FFmpeg and transitive-library licensing review before public binary redistribution.
 5. Implement preview/export parity using the same timeline schedule, transition map, video stack and audio mixer.

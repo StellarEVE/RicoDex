@@ -8,9 +8,11 @@ HyperDex is an early-stage project, not a finished or production-ready editor. I
 
 ## Current project status
 
-HyperDex has a working local-first analysis, editing, project-persistence and export foundation. The app export worker validates the project, decodes each referenced audio asset once and passes selected-song and enabled audio-track items to the renderer. A Windows app-worker MP4 integration test verifies the placed item's audio interval. The FFmpeg 8.1 binding and MSVC compatibility patch compile locally. Full Windows CI and packaging for these changes, plus interactive desktop acceptance, remain outstanding; the latest hosted run was blocked before source checks began.
+The latest complete Windows package verification is run [#104](https://github.com/StellarEVE/HyperDex/actions/runs/43614319131) for commit `211d6ad73cfbe40aaef05af19b98260eabbb3ca1`. It passed workspace tests, the release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. The current CI policy and workflow configuration were then validated by run [#106](https://github.com/StellarEVE/HyperDex/actions/runs/43616944483) for commit `9dca8e9b3772cedac6450d3c2900f6235a6ff6cd`: workspace tests and the release build passed, while package creation and artifact upload were correctly skipped on an ordinary push.
 
-The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
+One older, fully validated Windows package is currently retained in Actions storage: artifact `14121717047`, created from commit `211d6ad` (183,397,750 bytes). Superseded artifacts have been removed. This artifact is not a package built from the newer CI-policy commit.
+
+Interactive Windows desktop acceptance, broader hardware validation, and the FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
 
 ## Implemented workflow
 

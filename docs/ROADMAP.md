@@ -7,7 +7,6 @@ This document is the execution plan and canonical continuation guide for HyperDe
 This roadmap is the canonical continuation document for both contributors and new ChatGPT development sessions. The standalone `docs/NEW_CHAT_HANDOFF.md` has been retired. A new session must use this repository and this roadmap rather than relying on a prompt or status copied from an earlier conversation.
 
 ### Repository entry point and required reading
-### Naming convention
 
 Use **HyperDex** in ordinary prose and `hyperdex` for crate, package and code identifiers. Reserve **HyperDex Studio** for document headings, titles and explicit product-name or branding contexts.
 
@@ -22,6 +21,10 @@ Before changing code, read these documents from the current `main` branch:
 4. `docs/PLAN.md`
 5. `docs/WINDOWS_SMOKE_TEST.md`
 6. `docs/LICENSING.md`
+
+### Naming convention
+
+Use **HyperDex** in ordinary prose and `hyperdex` for crate, package and code identifiers. Reserve **HyperDex Studio** for document headings, titles and explicit product-name or branding contexts.
 
 Treat the live repository as authoritative. First inspect the current `main` head, recent commits, the current state of relevant Windows GitHub Actions runs, and the current source files for the task. Do not assume that commit hashes, workflow states, roadmap priorities, or implementation descriptions in an earlier conversation are still current. Reconcile discrepancies against code and completed workflow results before proceeding.
 
@@ -93,11 +96,13 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 
 ### Current verified implementation checkpoint (14 November 2026)
 
-The latest successful complete Windows package verification is run #104 for commit `211d6ad73cfbe40aaef05af19b98260eabbb3ca1`. It passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. Run #103 attempt 2 also passed the same full workflow for commit `2ddd85a3aa9dc8dfa6e8dcb36bb0e7015a547726`. The app-worker audio export wiring was introduced in source commit `fd5e2089f70d458dddd34653c128e9cbabcba267` and is covered by the successful full Windows verification in #104. CI results do not establish physical desktop acceptance or hardware compatibility.
+The latest complete Windows package verification is run [#104](https://github.com/StellarEVE/HyperDex/actions/runs/43614319131) for commit `211d6ad73cfbe40aaef05af19b98260eabbb3ca1`. It passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This is the latest full package validation for the current application source.
 
-The current source includes the persisted schema-4 transition model, transition-aware multi-track export and desktop audio-item export wiring. Historical verified milestones include schema-4 validation (#85), documentation consolidation (#89), transition mapping and full-timeline export (#90–#91), Edit-page transition controls (#92), audio-track validation and placement (#93–#94), and renderer-side audio mixing (#95). Run #104 confirms the current application code compiles, passes the workspace tests and packages successfully. Interactive desktop export acceptance remains pending.
+The current CI-policy/workflow configuration is validated by run [#106](https://github.com/StellarEVE/HyperDex/actions/runs/43616944483) for commit `9dca8e9b3772cedac6450d3c2900f6235a6ff6cd`. Workspace tests and the release build passed. Packaging and artifact-upload steps were skipped as intended for an ordinary push. This validates the ordinary CI path, not the manual packaging path under the new workflow.
 
-The repository's CI cost policy has been updated in commit `b2baf3a0eaaffbcac389cae2e438c4c21b59c0bd`: normal code push/PR runs perform workspace tests and a release build only; documentation-only changes are skipped; newer runs cancel stale in-progress runs; Windows packages are produced only by manual dispatch with `package_windows=true`, and new package artifacts expire after 3 days. Run [#105](https://github.com/StellarEVE/HyperDex/actions/runs/43616779547) is validating this new workflow configuration. The older 14-day artifacts remain until deleted or expired; the workflow change does not shorten their existing retention.
+The current source includes the persisted schema-4 transition model, transition-aware multi-track export and desktop audio-item export wiring. The app-worker audio export wiring was introduced in source commit `fd5e2089f70d458dddd34653c128e9cbabcba267` and is covered by the successful full Windows verification in #104. CI results do not establish physical desktop acceptance or hardware compatibility.
+
+The CI cost policy is active: ordinary code push/PR runs execute workspace tests and a release build only; documentation-only changes are ignored; newer runs cancel stale runs for the same branch or pull request; Windows packaging runs only by manual dispatch with `package_windows=true`; and new package artifacts expire after 3 days. The cleanup has left one retained package artifact, `14121717047` (183,397,750 bytes), from run #104 and commit `211d6ad`. Superseded artifacts were deleted. Existing artifacts are not retroactively affected by the 3-day retention setting.
 
 
 ## Delivery phases
@@ -106,7 +111,7 @@ The repository's CI cost policy has been updated in commit `b2baf3a0eaaffbcac389
 
 **Goal:** every code change is built and tested on Windows, and validation packages behave predictably.
 
-- Keep Windows workspace tests and release builds green. The current CI workflow passes workspace tests, release builds and package staging (verified by run #76).
+- Keep ordinary Windows push/PR workspace tests and release builds green. The current cost-controlled workflow passed both checks in run #106. Full packaging passed in run #104 under the prior always-package workflow; the manual `package_windows=true` path under the current workflow still needs a deliberate package run when a new package is required.
 - Verify the default OpenGL startup path on real Windows hardware.
 - Verify project save/load and recovery behaviour.
 - Validate FFmpeg decoding and encoding on reference machines.
