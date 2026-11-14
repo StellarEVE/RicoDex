@@ -49,4 +49,7 @@ pub use job::{
     TransitionSpec,
 };
 pub use transition::{TransitionKind, TransitionParams};
-pub use timeline::{TimelineFrame, TimelineFrameSchedule, TimelineLayer};
+pub use timeline::{
+    TimelineFrame, TimelineFrameSchedule, TimelineLayer, TimelineTransitionFrame,
+    TimelineTransitionMap, TimelineTransitionMapError, TimelineTransitionSegment,
+};

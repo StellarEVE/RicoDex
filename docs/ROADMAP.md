@@ -82,7 +82,7 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 
 The latest fully verified end-to-end export implementation is commit 3bdd237 (Render visible video tracks in stacking order). Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This confirms the software build and package workflow, not physical desktop acceptance or hardware compatibility.
 
-The current main branch has since added a persisted transition model in schema 4. The latest validation-order correction is commit 67ae474. At the latest check, Windows CI run #85 had passed the workspace-test step, while the release build was still running and packaging had not started. Do not treat the schema-4 change as fully CI-verified until the exact run completes successfully; regardless of that model-level verification, transition metadata is not yet rendered by app exports.
+The current main branch has since added a persisted transition model in schema 4. The latest validation-order correction is commit 67ae474, verified by the complete Windows CI run #85. Documentation consolidation commit `4615e4d` also passed the complete Windows CI run #89. Transition metadata is not yet rendered by app exports.
 
 - A shared rational TimelineFrameSchedule calculates frame timestamps from an integer frame index and rational frame rate. It supports bounded absolute-time ranges and has tests for long-duration timestamp stability.
 - TimelineFrameSchedule::layers_at samples active enabled items across project tracks, maps each layer to source time, and skips hidden tracks and muted audio tracks.
@@ -90,7 +90,7 @@ The current main branch has since added a persisted transition model in schema 4
 - The exporter preserves ordinary gaps and disabled-clip intervals on each track. Same-track items remain non-overlapping in the Core model.
 - The selected-song soundtrack is muxed as stereo AAC, resampled to 48 kHz and synchronized to the output frame count. Tests decode the resulting MP4 and check audio duration and stereo channel separation.
 - Core schema 4 adds an optional incoming transition to each timeline item. The transition stores its kind, parameters and duration, is set through an undoable Core command, and is validated against adjacent items on the same video track. Schemas 1–3 migrate without inventing transitions. Schema-1/2 provenance and pin protection remain preserved; schema-3 provenance and pin state are retained by the schema-4 migration.
-- The transition model is currently a persistence and validation foundation only. The existing render_project path still handles exactly two video items with one transition, a request-level effect stack and an optional transition-region render cache. It is not integrated into app-driven multi-track timeline export, and the main Edit UI has no transition editing control yet.
+- The schema-4 model now has a renderer-side `TimelineTransitionMap` foundation. It uses integer Tick values to compress each [cut-duration, cut+duration) source region into one output region of duration, maps other tracks through the region at 2x source-time speed, accumulates sequential transitions, and rejects overlapping transition regions across selected visible tracks. This mapping is unit-tested but is not yet wired into app-driven export, and the main Edit UI still has no transition control. The separate `render_project` path remains a two-clip renderer and is not full-timeline integration.
 - Preview playback using the same scheduler/compositor, full-timeline transition rendering, timeline audio-item placement, clip-source audio, gain/fades, normalization, full-timeline effects, atomic output finalization and true mid-render cancellation remain incomplete.
 
 Other existing application foundations:
@@ -145,11 +145,11 @@ Verified foundations:
 - A rational frame schedule is shared by the sequential exporter and the timeline sampling API. Frame times are calculated from integer frame indices and a rational frame rate rather than accumulated floating-point frame durations.
 - The app-driven exporter handles multiple clips across visible video tracks, hard cuts, ordinary gaps and gaps left by disabled clips. Track order is bottom-to-top; upper-track gaps reveal lower tracks, and uncovered frames are encoded as black. Windows CI run #81 passed the multi-track MP4 integration tests and full packaging pipeline.
 - The selected-song soundtrack can be encoded as stereo AAC alongside the video, with output-level tests for duration and channel separation.
-- The two-item transition/effect rendering path and transition-region cache exist, but are not yet part of full-timeline app export. Schema 4 now persists an incoming transition choice on an item with Core validation and an undoable command; the run #85 workspace-test step passed, but the full Windows workflow was still running at the latest check.
+- The two-item transition/effect rendering path and transition-region cache exist, but are not yet part of full-timeline app export. Schema 4 persists an incoming transition choice through a Core command; the separate `TimelineTransitionMap` now supplies exact output-time compression and conflict detection, but is not yet consumed by the sequential app exporter.
 
 Remaining work, in implementation order:
 
-1. **Full-timeline transitions.** The persisted transition metadata, backward-compatible schema-4 migration, validation and undoable command are implemented on main; the latest validation-order correction is being checked by CI run #85. Still integrate transition rendering into the multi-track timeline path, define exact output-time compression semantics, and reject ambiguous overlapping transition regions. The Edit UI must eventually expose this metadata through Core commands.
+1. **Full-timeline transitions.** The persisted transition metadata, backward-compatible schema-4 migration, validation and undoable command are implemented on main. The renderer-side `TimelineTransitionMap` defines integer-Tick output-time compression, a 2x background-track source-time map inside transition regions, sequential compression accumulation, and rejection of overlapping cross-track transition regions. Next, integrate that map into the multi-track renderer, compose each transition as a single track contribution between lower and upper tracks, preserve audio frame synchronization, and add MP4 integration tests. The Edit UI must expose the metadata through Core commands.
 2. **Timeline audio mixing.** Add placed audio items and clip-source audio, then support synchronized mixing, gain, fades and normalization. Preserve the existing selected-song bed as one supported audio source.
 3. **Preview/export parity.** Drive preview playback and final export from the same schedule, source-time mapping, track composition, transition and audio rules.
 4. **Full-timeline effects.** Apply per-clip and track-level effects through the same pipeline used by preview and export.
@@ -161,7 +161,7 @@ Keep the first supported output matrix deliberately small and testable, such as 
 
 **Current implementation stage: Phase 2.2, full-timeline transitions.**
 
-The first data-model slice is on main: an incoming clip can persist a transition kind, parameters and duration; Core validates the adjacent cut and duration constraints; `SetItemTransition` participates in undo/redo; and schema 1–3 projects migrate with no transition silently added. The latest validation correction is commit `67ae474269399175d4d507ca45b8cc12c067ea5b`; the workspace-test step in Windows CI run #85 passed, but release compilation and packaging were not yet complete at the latest check. The remaining implementation is to define output-time compression semantics, integrate the CPU transition compositor into the multi-track exporter, then add UI controls. Acceptance tests should cover a two-clip dissolve, a transition with a lower video track underneath, multiple sequential transitions where their regions do not overlap, disabled/hidden-track behaviour, duration/frame-count reduction, and soundtrack synchronization. Reject transition regions that overlap in project time until simultaneous cross-track transitions have an explicit compositing model.
+The first data-model slice is on main: an incoming clip can persist a transition kind, parameters and duration; Core validates the adjacent cut and duration constraints; `SetItemTransition` participates in undo/redo; and schema 1–3 projects migrate with no transition silently added. The schema-4 validation correction at `67ae474269399175d4d507ca45b8cc12c067ea5b` passed complete Windows CI run #85. The renderer-side `TimelineTransitionMap` is now implemented and unit-tested for single transitions, sequential compression, cross-track overlap rejection, and hidden/disabled endpoints. It still needs integration into the CPU multi-track exporter, MP4 tests and Edit UI controls. Acceptance tests should cover a two-clip dissolve, a transition with a lower video track underneath, multiple sequential transitions where their regions do not overlap, disabled/hidden-track behaviour, duration/frame-count reduction, and soundtrack synchronization. Reject transition regions that overlap in project time until simultaneous cross-track transitions have an explicit compositing model.
 
 **Phase 2 exit gate:** a representative multi-track project with gaps, transitions and synchronized audio previews and exports with matching timing and content.
 
@@ -234,8 +234,23 @@ Do not spend early milestones attempting full professional-NLE parity. Defer nod
 ## Current release gates
 
 - [x] Multi-track export commit passes Windows workspace tests, release build, runtime dependency staging, portable ZIP and installer packaging (CI run #81).
-- [ ] Schema-4 incoming-transition model and validation-order correction pass the complete Windows CI workflow (run #85 workspace tests passed; release build was still running and packaging remained pending at the latest check).
+- [x] Schema-4 incoming-transition model and validation-order correction pass the complete Windows CI workflow (run #85).
 - [x] Windows package staging, portable ZIP and installer creation pass for the verified multi-track export commit (CI run #81).
 - [ ] Application launches on a clean Windows machine using the default renderer.
 - [ ] Import, analyze, edit, save, reopen and export smoke test passes.
 - [ ] FFmpeg and bundled transitive-library licensing review is complete before public binary distribution.
+
+
+### Phase 2.2 implementation progress: transition timeline mapping
+
+The renderer now has a pure, decoder-independent `TimelineTransitionMap` foundation. It is built for the exact set of video tracks participating in an export and defines the shared time interpretation:
+
+- An incoming transition of duration `D` at cut `C` uses outgoing source time `[C-D, C)` and incoming source time `[C, C+D)`.
+- Those two source halves produce one output region of duration `D`. The full source region `[C-D, C+D)` is compressed by exactly `D) ticks.
+- During that output region, tracks not undergoing the transition sample a continuous source timeline that advances from `C-D` to `C+D` at 2x speed. The transitioning track gets separate outgoing and incoming source timestamps plus normalized blend progress.
+- Sequential transitions accumulate compression once each. A later transition's output start is its source start minus all earlier transition durations.
+- Cross-track transition regions that overlap in source project time are rejected because they cannot share one deterministic global source-time mapping.
+- Hidden tracks are excluded. If either adjacent clip is disabled, its transition is inactive and does not compress output time. Only tracks selected for rendering contribute transition metadata.
+- The output schedule is derived from the compressed Tick range using the existing rational frame-rate scheduler. No per-frame rounded durations are accumulated.
+
+This slice defines and unit-tests the time model only. The map is not yet consumed by the exporter. Do not mark Phase 2.2 complete or describe transitions as exported until per-track transition decoding/blending, lower/upper track composition, multiple transitions, disabled/hidden behaviour, MP4 frame count and selected-song AAC synchronization are verified end to end. The integration should use dedicated outgoing/incoming frame readers for the transition track rather than reusing one stateful track decoder for two timestamps in the same output frame.
