@@ -454,12 +454,19 @@ impl Project {
                     }
                 }
 
-                // An item's incoming transition consumes its head; the next
-                // item's incoming transition consumes this item's tail.
-                let transition_at_head = item.transition_in.map(|t| t.duration).unwrap_or(Tick::ZERO);
-                let transition_at_tail = items.get(index + 1)
+            }
+
+            // Check transition overlap only after every individual transition
+            // has passed its own duration validation. This keeps the returned
+            // error specific when a too-long transition also consumes the
+            // neighbouring clip's available region.
+            for (index, item) in group.items.iter().enumerate() {
+                let transition_at_head = item.transition_in
+                    .map(|transition| transition.duration)
+                    .unwrap_or(Tick::ZERO);
+                let transition_at_tail = group.items.get(index + 1)
                     .and_then(|next| next.transition_in)
-                    .map(|t| t.duration)
+                    .map(|transition| transition.duration)
                     .unwrap_or(Tick::ZERO);
                 if transition_at_head + transition_at_tail >= item.duration {
                     return Err(ModelError::TransitionRegionsConsumeItem { item_id: item.id });
