@@ -37,8 +37,8 @@ The current sequential exporter expects a contiguous cut. Reordering therefore c
 ### Save projects and recover media
 
 - Save, Save As, and Open project files using versioned JSON persistence.
-- Schema-1 project files migrate to schema 2.
-- Persist selected-song identity and per-asset intro/outro trims.
+- Schema-1 projects migrate through schema 2 defaults to schema 3; schema-1 and schema-2 timelines migrate with legacy clips protected as manual and pinned.
+- Persist selected-song identity, per-asset intro/outro trims, and per-clip provenance/pin state.
 - Rebuild the Media pool when opening a project.
 - Relink moved media only when its content fingerprint matches the saved asset. If the old project has no saved fingerprint, fingerprint enrollment is allowed only from the original stored path.
 

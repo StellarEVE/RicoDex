@@ -56,6 +56,8 @@ pub enum Command {
     SetItemEnabled { item_id: ItemId, enabled: bool },
     /// Pin or unpin a clip without changing its generated/manual origin.
     SetItemPinned { item_id: ItemId, pinned: bool },
+    /// Mark an explicitly inserted clip as user-authored and protect it.
+    MarkItemManual { item_id: ItemId },
     SetTrackMuted { track_id: TrackId, muted: bool },
     SetTrackLocked { track_id: TrackId, locked: bool },
 }
@@ -380,6 +382,18 @@ impl Project {
                 item.pinned = *pinned;
                 Ok(())
             }
+            Command::MarkItemManual { item_id } => {
+                let track_id = self
+                    .find_item_track(*item_id)
+                    .ok_or(CommandError::UnknownItem { item_id: *item_id })?;
+                let items = self.items_mut(track_id).expect("track found above");
+                let item = items
+                    .iter_mut()
+                    .find(|item| item.id == *item_id)
+                    .expect("item found above");
+                mark_manual(item);
+                Ok(())
+            }
             Command::SetTrackMuted { track_id, muted } => {
                 let track = self
                     .track_mut(*track_id)
@@ -597,6 +611,18 @@ mod tests {
         assert!(!history.project().item(10).unwrap().pinned);
         assert!(history.redo());
         assert!(history.project().item(10).unwrap().pinned);
+    }
+
+
+    #[test]
+    fn mark_item_manual_and_pin() {
+        let project = project_with_one_clip()
+            .apply(&Command::MarkItemManual { item_id: 10 })
+            .map_err(|(_, error)| error)
+            .unwrap();
+        let item = project.item(10).unwrap();
+        assert_eq!(item.provenance, ItemProvenance::Manual);
+        assert!(item.pinned);
     }
 
 
