@@ -25,14 +25,15 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 
 ### Current verified implementation checkpoint (14 November 2026)
 
-The latest main commit covered by Windows CI is 8a79030 (Allow timeline gaps in sequential export). CI run #76 passed workspace tests, release builds, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This confirms the Windows CI build/package workflow, not physical desktop acceptance or hardware compatibility.
+The latest multi-track export implementation is commit 3bdd237 (Render visible video tracks in stacking order). Windows CI run #81 passed the full workspace test suite, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This confirms the software build and package workflow, not physical desktop acceptance or hardware compatibility.
 
 - A shared rational TimelineFrameSchedule calculates frame timestamps from an integer frame index and rational frame rate. It supports bounded absolute-time ranges and has tests for long-duration timestamp stability.
-- TimelineFrameSchedule::layers_at can sample active enabled items across project tracks, maps each layer to source time, and skips hidden tracks and muted audio tracks. This is a scheduling/sampling primitive; it is not yet a multi-track compositor or a preview playback pipeline.
-- The app-driven sequential exporter uses the shared schedule for one selected video track. It renders multiple enabled clips in timeline order, preserves gaps as black frames, and also preserves the interval occupied by a disabled clip as black. The exported span runs from the first enabled clip's start to the last enabled clip's end. The Core model still rejects overlapping items on the same track.
-- The sequential exporter can mux the selected song as stereo AAC, resampled to 48 kHz and synchronized to the output frame count. Tests decode the resulting MP4 and check audio duration and stereo channel separation.
-- A separate render_project path handles exactly two video items with one transition, a request-level effect stack and an optional transition-region render cache. That path is not integrated into the app's sequential full-timeline export and does not establish full-timeline transition/effect support.
-- Preview playback using the same scheduler/compositor, multi-track video compositing, timeline audio-item placement, clip-source audio, gain/fades, normalization, atomic output finalization and true mid-render cancellation remain incomplete.
+- TimelineFrameSchedule::layers_at samples active enabled items across project tracks, maps each layer to source time, and skips hidden tracks and muted audio tracks.
+- The app-driven exporter now renders enabled clips across every visible video track in project track order, with later tracks above earlier tracks. It composites active frames with source-over alpha. A gap or disabled clip on an upper track reveals lower tracks; black is emitted only when no visible video layer is active. MP4 integration tests cover stacking order, hidden tracks, disabled upper clips, gaps and the selected-song soundtrack.
+- The exporter preserves ordinary gaps and disabled-clip intervals on each track. Same-track items remain non-overlapping in the Core model.
+- The selected-song soundtrack is muxed as stereo AAC, resampled to 48 kHz and synchronized to the output frame count. Tests decode the resulting MP4 and check audio duration and stereo channel separation.
+- A separate render_project path still handles exactly two video items with one transition, a request-level effect stack and an optional transition-region render cache. This path is not yet integrated into the app-driven multi-track timeline export.
+- Preview playback using the same scheduler/compositor, full-timeline transitions, timeline audio-item placement, clip-source audio, gain/fades, normalization, full-timeline effects, atomic output finalization and true mid-render cancellation remain incomplete.
 
 Other existing application foundations:
 
@@ -90,18 +91,19 @@ Verified foundations:
 
 Remaining work, in implementation order:
 
-1. **Multi-track video composition.** Render active clips from multiple video tracks in deterministic track order, respecting hidden tracks and disabled items. The existing layers_at sampler is a starting point, not a finished compositor.
-2. **Full-timeline transitions.** Integrate transition selection and rendering into the multi-clip timeline path instead of relying on the separate two-item renderer.
-3. **Timeline audio mixing.** Add placed audio items and clip-source audio, then support synchronized mixing, gain, fades and normalization. Preserve the existing selected-song bed as one supported audio source.
-4. **Preview/export parity.** Drive preview playback and final export from the same schedule, source-time mapping, track composition, transition and audio rules.
-5. **Full-timeline effects.** Apply per-clip and track-level effects through the same pipeline used by preview and export.
-6. **Export finalization and cancellation.** Write to a temporary destination and atomically finalize on success; implement true cancellation during decoding/rendering/encoding, accurate progress and useful errors.
+1. **Full-timeline transitions.** Persist each incoming clip's transition choice, validate that it connects adjacent clips on one video track, and render it in the multi-track timeline path. The initial implementation should define clear overlap and duration semantics and reject ambiguous overlapping transition regions.
+2. **Timeline audio mixing.** Add placed audio items and clip-source audio, then support synchronized mixing, gain, fades and normalization. Preserve the existing selected-song bed as one supported audio source.
+3. **Preview/export parity.** Drive preview playback and final export from the same schedule, source-time mapping, track composition, transition and audio rules.
+4. **Full-timeline effects.** Apply per-clip and track-level effects through the same pipeline used by preview and export.
+5. **Export finalization and cancellation.** Write to a temporary destination and atomically finalize on success; implement true cancellation during decoding/rendering/encoding, accurate progress and useful errors.
 
 Keep the first supported output matrix deliberately small and testable, such as MP4 with H.264 video and AAC audio.
 
-**Next implementation stage: Phase 2.1, multi-track video composition.**
+**Completed implementation stage: Phase 2.1, multi-track video composition.** The app-driven exporter now composites all visible video tracks in project order. Windows CI run #81 passed workspace tests and the complete packaging pipeline.
 
-Start by defining and testing the compositor's track-order and visibility semantics. Then render a two-video-track project through the app export path, including overlapping clips and gaps. The acceptance tests should verify compositing order, hidden-track exclusion, disabled-clip gaps, stable frame count/duration and preservation of the selected-song audio bed.
+**Next implementation stage: Phase 2.2, full-timeline transitions.**
+
+Add a persisted transition model to Core with backward-compatible project migration. Attach a transition to the incoming clip at an adjacent cut, define the output-time compression semantics for the overlap, then integrate the existing CPU transition compositor into the multi-track exporter. Acceptance tests should cover a two-clip dissolve, a transition with a lower video track underneath, multiple sequential transitions where their regions do not overlap, disabled/hidden-track behaviour, duration/frame-count reduction, and soundtrack synchronization. Reject transition regions that overlap in project time until simultaneous cross-track transitions have an explicit compositing model.
 
 **Phase 2 exit gate:** a representative multi-track project with gaps, transitions and synchronized audio previews and exports with matching timing and content.
 
