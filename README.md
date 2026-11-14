@@ -8,7 +8,7 @@ HyperDex is an early-stage project, not a finished or production-ready editor. I
 
 ## Current project status
 
-HyperDex has a working local-first analysis, editing, project-persistence and export foundation. The app export worker validates the project, decodes each referenced audio asset once and passes selected-song and enabled audio-track items to the renderer. A Windows app-worker MP4 integration test verifies the placed item's audio interval. The FFmpeg 8.1 binding and MSVC compatibility patch compile locally. Full Windows CI and packaging for these changes, plus interactive desktop acceptance, remain outstanding.
+HyperDex has a working local-first analysis, editing, project-persistence and export foundation. The app export worker validates the project, decodes each referenced audio asset once and passes selected-song and enabled audio-track items to the renderer. A Windows app-worker MP4 integration test verifies the placed item's audio interval. The FFmpeg 8.1 binding and MSVC compatibility patch compile locally. Full Windows CI and packaging for these changes, plus interactive desktop acceptance, remain outstanding; the latest hosted run was blocked before source checks began.
 
 The Windows desktop acceptance checklist, broader hardware validation, and FFmpeg/transitive-library redistribution review remain outstanding. Do not treat an Actions artifact as a public release.
 

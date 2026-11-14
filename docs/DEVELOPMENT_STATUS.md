@@ -7,7 +7,7 @@
 
 This document is the practical engineering snapshot. The product plan describes intended product behaviour; this file describes what is present in code and what is still incomplete. A persisted type or isolated helper is not the same as an end-to-end application feature.
 
-**Current verification:** local Windows `cargo test --locked --workspace` passes all 128 tests, strict Clippy passes with `-D warnings`, and `cargo build --locked --release --workspace` succeeds against FFmpeg 8.1.3. Tests include app-worker MP4 verification of placed-audio timing. Full Windows CI on this commit, interactive desktop smoke testing, and formal transitive-library licensing review remain pending. `cargo audit` is unavailable in the local environment, so a registry-backed advisory scan has not been completed.
+**Current verification:** local Windows `cargo test --locked --workspace` passes all 128 tests, strict Clippy passes with `-D warnings`, and `cargo build --locked --release --workspace` succeeds against FFmpeg 8.1.3. Tests include app-worker MP4 verification of placed-audio timing. Windows Actions run [#102](https://github.com/StellarEVE/HyperDex/actions/runs/43607256291) failed before its job started because GitHub blocked hosted-runner usage at the account level; no source checks ran. Interactive desktop smoke testing and formal transitive-library licensing review remain pending. `cargo audit` is unavailable in the local environment, and GitHub Dependabot alerts are disabled, so a registry-backed advisory scan has not been completed.
 
 ## 1. Product summary
 
@@ -98,13 +98,13 @@ The HyperDex Edit UI has a video clip editor plus a separate audio-track placeme
 - Full-timeline transition export: MP4 integration tests and the complete Windows workflow passed in run #91.
 - Edit-page transition controls: Core command integration and AppState tests passed the complete Windows workflow in run #92.
 - Previous CI runs #83 and #84 failed during the first transition-model test pass. Run #83 exposed a stale test type name; run #84 exposed validation error-ordering in the transition-limit test. The stale test type was corrected, and commit `67ae474` moves transition-region aggregate validation after individual transition validation. The complete validation workflow passed in run #85.
-- Windows CI builds and packages the application, but it does not establish clean-machine interactive acceptance or hardware performance.
+- Windows CI builds and packages the application, but it does not establish clean-machine interactive acceptance or hardware performance. Run #102 did not start, so it gives no build/test result for the current commit.
 - The Windows smoke-test checklist is `docs/WINDOWS_SMOKE_TEST.md`.
 - The CI artifact is a validation package, not an approved public release. See `docs/LICENSING.md`.
 
 ## 6. Recommended next implementation sequence
 
-1. Confirm successful Windows CI and packaging on the updated `main` commit; previous runs #96–#100 failed before workflow steps ran.
+1. Restore hosted-runner availability, then confirm successful Windows CI and packaging on the current `main` commit. Run #102 was blocked before the job started; its annotation points to an account-level Actions billing/spending restriction.
 2. Complete interactive Windows smoke testing, especially exports with selected-song plus placed-audio and placed-audio only.
 3. Add source-video audio, per-item/track gain, fades, normalization and a dedicated limiter, with decoded-MP4 tests.
 4. Complete the FFmpeg and transitive-library licensing review before public binary redistribution.

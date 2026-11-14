@@ -84,7 +84,7 @@ The workspace contains eight Rust crates with explicit responsibility boundaries
 
 ### Current verified implementation checkpoint (14 November 2026)
 
-The latest fully verified end-to-end export implementation is commit 3bdd237 (Render visible video tracks in stacking order). Windows CI run #81 passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload. This confirms the software build and package workflow, not physical desktop acceptance or hardware compatibility.
+The latest complete Windows CI verification is run #95, which passed workspace tests, release build, runtime dependency staging, portable ZIP creation, Windows installer creation and artifact upload for the renderer-side audio mixer. The later desktop export-worker wiring and MP4 timing test are locally verified, but have not passed hosted Windows CI: run #102 was blocked before source checks started. CI results do not establish physical desktop acceptance or hardware compatibility.
 
 The current source includes the persisted schema-4 transition model and transition-aware multi-track export. Historical verified milestones include schema-4 validation (#85), documentation consolidation (#89), transition mapping and full-timeline export (#90–#91), Edit-page transition controls (#92), audio-track validation and placement (#93–#94), and renderer-side audio mixing (#95). The desktop worker is now connected to the audio-item renderer API and has a Windows MP4 integration test; full CI and packaging verification for this connection is pending.
 
