@@ -149,7 +149,7 @@ Verified foundations:
 
 Remaining work, in implementation order:
 
-1. **Timeline audio placement and mixing.** The Core foundation now validates asset/track-kind compatibility and creates tracks through an undoable `AddTrack` command. Next add Edit-page audio-track controls and validated audio-item placement through Core commands, then decode and mix multiple synchronized stereo audio layers. Preserve the selected-song bed as a supported source. Add source-clip audio, per-item/track gain, fades and normalization incrementally, with MP4 decode tests for mix content and synchronization.
+1. **Timeline audio placement and mixing.** The Core foundation validates asset/track-kind compatibility and creates tracks through an undoable `AddTrack` command. The Edit page now lets users add audio tracks, append a probed audio asset as a timeline item, mute a track and remove an item. Placement uses Core commands and undo/redo. Next decode and mix multiple synchronized stereo audio layers. This export work must keep the selected-song bed at normal output-time speed and map placed audio items through the same transition-compressed timeline as video. Preserve the selected-song bed as a supported source. Add source-clip audio, per-item/track gain, fades and normalization incrementally, with MP4 decode tests for mix content and synchronization.
 2. **Preview/export parity.** Drive preview playback and final output from the same schedule, source-time mapping, track composition, transition and audio rules. Preserve a correct software path and bounded render work.
 3. **Full-timeline effects.** Apply per-clip and track-level effects through the same pipeline used by preview and export.
 4. **Export finalization and cancellation.** Write to a temporary destination and atomically finalize on success; implement true cancellation during decoding/rendering/encoding, accurate progress and useful errors.
@@ -261,4 +261,13 @@ The Core model enforces track and asset compatibility: Audio tracks accept Audio
 
 Track creation is represented by `Command::AddTrack`. It creates the track and corresponding empty item group as one atomic Core edit, participates in snapshot undo/redo, and relies on normal project validation to reject duplicate track IDs. Tests cover valid and invalid asset/track combinations, AddTrack undo/redo, and duplicate-ID rejection.
 
-This is only the model foundation. Audio-item placement UI, stereo clip decoding, multiple-source mixing, mute/hidden/disabled behaviour in the mix, and MP4 integration tests remain to be implemented. Do not describe timeline audio mixing as supported yet.
+The Edit-page placement controls are described in the next subsection. The remaining audio work is decoding placed assets and mixing them with the selected-song bed in MP4 export. Do not describe timeline audio as audible in exports until that mixer is verified.
+
+
+### Phase 2.3 implementation progress: audio-item placement
+
+The Edit page now exposes audio tracks separately from the video timeline. Users can create multiple audio tracks, append a probed audio asset after the last item on a track, mute/unmute a track and remove an audio item. AppState validates that the target track is an unlocked audio track and that the asset exists, is an audio asset and has completed probing. Source intro/outro trims define the placed item's source range; its timeline duration is the remaining usable source duration.
+
+Each placement is a Core `InsertItem` command and is marked manual/pinned in the same history entry. Track creation is `Command::AddTrack`; mute and removal use existing Core commands. AppState tests cover sequential placement, saved source/timeline coordinates, one-step undo, track removal by undo, wrong track/asset kinds and unready files.
+
+This is timeline metadata and editing only. The app exporter still needs to decode placed audio assets and mix them into the existing selected-song stereo AAC stream. Do not claim placed audio is audible in exports until MP4 integration tests verify it.

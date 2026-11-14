@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use ricodex_audio::SongAnalysis;
 use ricodex_core::{
-    Asset, AssetId, AssetKind, Command, Fingerprint, History, ItemId, ItemProvenance, Project,
+    Asset, AssetId, AssetKind, Command, Fingerprint, History, Item, ItemId, ItemProvenance, Project,
     Tick, Track, TrackKind,
 };
 use ricodex_engine::{ClipState, Plan, PlannedClip, PlannerSettings, SourceInfo};
@@ -1157,10 +1157,13 @@ impl AppState {
         }
         self.history.apply(command).map_err(|error| error.to_string())?;
         if let Command::InsertItem { item, .. } = command {
-            // Explicit app-level inserts are user content, not planner output.
-            self.history
-                .apply(&Command::MarkItemManual { item_id: item.id })
-                .map_err(|error| error.to_string())?;
+            // App inserts are user content. Already-manual/pinned inserts use
+            // one history entry rather than requiring a second undo for this flag.
+            if item.provenance != ItemProvenance::Manual || !item.pinned {
+                self.history
+                    .apply(&Command::MarkItemManual { item_id: item.id })
+                    .map_err(|error| error.to_string())?;
+            }
         }
         self.project = self.history.project().clone();
         self.refresh_clip_flags();
@@ -1253,6 +1256,83 @@ impl AppState {
             .max()
             .unwrap_or(0)
             .checked_add(1)
+    }
+
+    /// Add an empty audio track through the Core command/history path.
+    pub fn add_audio_track(&mut self) -> Result<u64, String> {
+        let track_id = self.project.tracks.iter()
+            .map(|track| track.id)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| "no track IDs remain available".to_string())?;
+        let ordinal = self.project.tracks.iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .count() + 1;
+        self.apply_edit(&Command::AddTrack {
+            track: Track::new(track_id, TrackKind::Audio, format!("A{ordinal}")),
+        })?;
+        Ok(track_id)
+    }
+
+    /// Append one imported, probed audio asset to the end of an audio track.
+    /// Source trims are honoured and the new item is marked as user-authored.
+    pub fn append_audio_asset(
+        &mut self,
+        track_id: u64,
+        asset_id: AssetId,
+    ) -> Result<ItemId, String> {
+        let (track_kind, track_locked) = self.project.track(track_id)
+            .map(|track| (track.kind, track.locked))
+            .ok_or_else(|| format!("audio track {track_id} does not exist"))?;
+        if track_kind != TrackKind::Audio {
+            return Err(format!("track {track_id} is not an audio track"));
+        }
+        if track_locked {
+            return Err(format!("audio track {track_id} is locked"));
+        }
+
+        let (asset_kind, source_in, usable_duration) = self.project.assets.iter()
+            .find(|asset| asset.id == asset_id)
+            .map(|asset| (
+                asset.kind,
+                asset.intro_trim,
+                asset.duration
+                    .checked_sub(asset.outro_trim)
+                    .and_then(|end| end.checked_sub(asset.intro_trim)),
+            ))
+            .ok_or_else(|| format!("audio asset {asset_id} is not in the project"))?;
+        if asset_kind != AssetKind::Audio {
+            return Err(format!("asset {asset_id} is not an audio asset"));
+        }
+        let duration = usable_duration
+            .ok_or_else(|| "audio asset has an invalid source trim range".to_string())?;
+        let pool_entry = self.pool.iter()
+            .find(|entry| entry.asset_id == asset_id)
+            .ok_or_else(|| format!("audio asset {asset_id} is not available in the Media pool"))?;
+        if pool_entry.probing {
+            return Err("wait for audio probing to finish before placing the file".to_string());
+        }
+        if let Some(error) = &pool_entry.probe_error {
+            return Err(format!("audio asset is unavailable: {error}"));
+        }
+        if duration <= Tick::ZERO {
+            return Err("audio asset has no usable duration after source trims".to_string());
+        }
+
+        let start = self.project.items(track_id)
+            .into_iter()
+            .flat_map(|items| items.iter())
+            .map(|item| item.end())
+            .max()
+            .unwrap_or(Tick::ZERO);
+        let item_id = self.next_item_id()
+            .ok_or_else(|| "no timeline item IDs remain available".to_string())?;
+        let mut item = Item::new(item_id, asset_id, start, duration, source_in);
+        item.provenance = ItemProvenance::Manual;
+        item.pinned = true;
+        self.apply_edit(&Command::InsertItem { track_id, item })?;
+        Ok(item_id)
     }
 
     /// Total timeline length covered by the current clips.
@@ -1960,6 +2040,78 @@ mod tests {
         state.begin_analysis(PathBuf::from("/tmp/cache")).unwrap();
         state.handle_pipeline_msg(PipelineMsg::Cancelled);
         assert_eq!(state.cut_status_line(), "analysis cancelled");
+    }
+
+    #[test]
+    fn audio_tracks_can_be_created_and_audio_assets_appended_with_single_step_undo() {
+        let mut state = state_with_media();
+        let audio_asset_id = state.pool.iter()
+            .find(|entry| entry.kind == MediaKind::Audio)
+            .unwrap()
+            .asset_id;
+        let track_id = state.add_audio_track().unwrap();
+        assert_eq!(state.project.track(track_id).unwrap().kind, TrackKind::Audio);
+        assert!(state.project.items(track_id).unwrap().is_empty());
+
+        let first_id = state.append_audio_asset(track_id, audio_asset_id).unwrap();
+        let second_id = state.append_audio_asset(track_id, audio_asset_id).unwrap();
+        let items = state.project.items(track_id).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id, first_id);
+        assert_eq!(items[0].start, Tick::ZERO);
+        assert_eq!(items[0].duration, Tick::from_seconds(8.0));
+        assert_eq!(items[0].source_in, Tick::ZERO);
+        assert_eq!(items[1].id, second_id);
+        assert_eq!(items[1].start, Tick::from_seconds(8.0));
+        assert!(items.iter().all(|item| item.provenance == ItemProvenance::Manual && item.pinned));
+
+        // Each UI placement is one Core history entry.
+        assert!(state.undo_edit());
+        assert_eq!(state.project.items(track_id).unwrap().len(), 1);
+        assert!(state.undo_edit());
+        assert!(state.project.items(track_id).unwrap().is_empty());
+        assert!(state.undo_edit());
+        assert!(state.project.track(track_id).is_none());
+        assert!(state.redo_edit());
+        assert_eq!(state.project.track(track_id).unwrap().kind, TrackKind::Audio);
+    }
+
+    #[test]
+    fn audio_asset_placement_honours_source_trims() {
+        let mut state = state_with_media();
+        let audio_index = state.pool.iter()
+            .position(|entry| entry.kind == MediaKind::Audio)
+            .unwrap();
+        state.set_trims_seconds(audio_index, 1.0, 2.0);
+        let audio_asset_id = state.pool[audio_index].asset_id;
+        let track_id = state.add_audio_track().unwrap();
+
+        let item_id = state.append_audio_asset(track_id, audio_asset_id).unwrap();
+        let item = state.project.item(item_id).unwrap();
+        assert_eq!(item.start, Tick::ZERO);
+        assert_eq!(item.source_in, Tick::from_seconds(1.0));
+        assert_eq!(item.duration, Tick::from_seconds(5.0));
+    }
+
+    #[test]
+    fn audio_asset_placement_rejects_video_tracks_and_unready_assets() {
+        let mut state = state_with_media();
+        let audio_asset_id = state.pool.iter()
+            .find(|entry| entry.kind == MediaKind::Audio)
+            .unwrap()
+            .asset_id;
+        let video_asset_id = state.pool.iter()
+            .find(|entry| entry.kind == MediaKind::Video)
+            .unwrap()
+            .asset_id;
+
+        assert!(state.append_audio_asset(VIDEO_TRACK_ID, audio_asset_id).is_err());
+        let audio_track = state.add_audio_track().unwrap();
+        assert!(state.append_audio_asset(audio_track, video_asset_id).is_err());
+
+        let unready = state.import_path(PathBuf::from("/tmp/extra-song.wav"));
+        let unready_id = state.pool[unready].asset_id;
+        assert!(state.append_audio_asset(audio_track, unready_id).unwrap_err().contains("probing"));
     }
 
     #[test]

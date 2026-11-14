@@ -926,10 +926,121 @@ impl EditorApp {
 
         self.timeline_strip(ui, 110.0, true);
         ui.label(
-            RichText::new("Drag clips left or right to reorder. Reordered clips are kept contiguous for the current sequential export path.")
+            RichText::new("Drag video clips left or right to reorder. Reordering keeps that video track contiguous.")
                 .color(SILVER_DIM)
                 .small(),
         );
+
+        let audio_track_views: Vec<_> = self.state.project.tracks.iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .map(|track| (
+                track.id,
+                track.name.clone(),
+                track.muted,
+                track.locked,
+                self.state.project.items(track.id).cloned().unwrap_or_default(),
+            ))
+            .collect();
+        let audio_asset_views: Vec<_> = self.state.pool.iter()
+            .filter(|entry| entry.kind == MediaKind::Audio)
+            .map(|entry| (
+                entry.asset_id,
+                entry.name(),
+                !entry.probing && entry.probe_error.is_none()
+                    && entry.duration.map(|duration| duration > Tick::ZERO).unwrap_or(false),
+            ))
+            .collect();
+
+        let mut add_audio_track_requested = false;
+        let mut append_audio_request: Option<(u64, u64)> = None;
+        let mut remove_audio_item_request: Option<u64> = None;
+        let mut mute_audio_track_request: Option<(u64, bool)> = None;
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Audio tracks").strong());
+            add_audio_track_requested = ui
+                .add_enabled(!pipeline_running, egui::Button::new("Add audio track"))
+                .clicked();
+        });
+        if audio_track_views.is_empty() {
+            ui.label(RichText::new("Add an audio track, then append an imported audio file.").color(SILVER_DIM).small());
+        }
+        for (track_id, name, muted, locked, items) in &audio_track_views {
+            egui::Frame::new()
+                .fill(SURFACE)
+                .corner_radius(CornerRadius::same(4))
+                .inner_margin(egui::Margin::same(8))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(name.as_str()).strong());
+                        if ui.add_enabled(
+                            !pipeline_running && !*locked,
+                            egui::Button::new(if *muted { "Unmute" } else { "Mute" }),
+                        ).clicked() {
+                            mute_audio_track_request = Some((*track_id, !*muted));
+                        }
+                    });
+                    if items.is_empty() {
+                        ui.label(RichText::new("No audio items").color(SILVER_DIM).small());
+                    }
+                    for item in items {
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "{}  |  {:.2} s  |  {:.2} s",
+                                self.state.asset_name(item.asset_id),
+                                item.start.to_seconds(),
+                                item.duration.to_seconds(),
+                            ));
+                            if ui.add_enabled(
+                                !pipeline_running && !*locked,
+                                egui::Button::new("Remove"),
+                            ).clicked() {
+                                remove_audio_item_request = Some(item.id);
+                            }
+                        });
+                    }
+                    if !audio_asset_views.is_empty() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label("Append:");
+                            for (asset_id, asset_name, ready) in &audio_asset_views {
+                                if ui.add_enabled(
+                                    !pipeline_running && !*locked && *ready,
+                                    egui::Button::new(asset_name.as_str()),
+                                ).clicked() {
+                                    append_audio_request = Some((*track_id, *asset_id));
+                                }
+                            }
+                        });
+                    } else {
+                        ui.label(RichText::new("Import an audio file on the Media page to place it here.").color(SILVER_DIM).small());
+                    }
+                });
+        }
+
+        if add_audio_track_requested {
+            match self.state.add_audio_track() {
+                Ok(track_id) => self.state.notice = Some(format!("Added audio track {track_id}")),
+                Err(error) => self.state.notice = Some(error),
+            }
+        }
+        if let Some((track_id, asset_id)) = append_audio_request {
+            match self.state.append_audio_asset(track_id, asset_id) {
+                Ok(item_id) => self.state.notice = Some(format!("Added audio item {item_id}")),
+                Err(error) => self.state.notice = Some(error),
+            }
+        }
+        if let Some(item_id) = remove_audio_item_request {
+            if let Err(error) = self.state.apply_edit(&Command::RemoveItem { item_id }) {
+                self.state.notice = Some(error);
+            }
+        }
+        if let Some((track_id, muted)) = mute_audio_track_request {
+            if let Err(error) = self.state.apply_edit(&Command::SetTrackMuted { track_id, muted }) {
+                self.state.notice = Some(error);
+            }
+        }
+
         ui.separator();
         let selected = self
             .state

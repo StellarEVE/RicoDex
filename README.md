@@ -31,7 +31,8 @@ The Windows desktop acceptance checklist, broader hardware validation, and FFmpe
 - Drag clips to reorder them.
 - Pin clips and use undo/redo.
 - Set, change and clear incoming transitions using the Edit inspector. Transition type and duration edits use Core commands and support undo/redo.
-- Core supports validated, undoable audio-track creation and rejects audio assets on video tracks (and vice versa). Full audio-item placement and mixing are not yet exposed.
+- Create audio tracks, append imported audio files as timeline items, mute tracks and remove items. These placements are saved in the project and use Core command history; the audio-item mixer is not yet integrated into MP4 export.
+- Core supports validated, undoable audio-track creation and rejects audio assets on video tracks (and vice versa). Placed audio items are exposed in Edit, but the MP4 exporter does not yet mix those items; only the selected-song bed is currently exported as AAC.
 - Route timeline edits through Core validation, commands, and snapshot history.
 
 The Edit-page reorder workflow compacts the edited track into a contiguous sequence; the underlying multi-track renderer can preserve gaps already present in project data. Source intro/outro trims are validated against each timeline item's source range and become locked once a timeline exists.
