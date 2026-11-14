@@ -1964,7 +1964,23 @@ mod tests {
 
     #[test]
     fn pins_toggle() {
-        let mut state = AppState::new();
+        let mut state = state_with_media();
+        let asset_id = state.project.assets.iter()
+            .find(|asset| asset.kind == AssetKind::Video)
+            .unwrap()
+            .id;
+        state.project.items_mut(VIDEO_TRACK_ID).unwrap().push(
+            ricodex_core::Item::new(
+                5,
+                asset_id,
+                Tick::ZERO,
+                Tick::from_seconds(2.0),
+                Tick::ZERO,
+            ),
+        );
+        state.history = History::new(state.project.clone());
+        state.refresh_clip_flags();
+
         assert!(!state.is_pinned(5));
         state.toggle_pin(5);
         assert!(state.is_pinned(5));
