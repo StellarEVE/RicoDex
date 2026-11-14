@@ -30,6 +30,7 @@ pub struct TimelineLayer {
 pub struct TimelineFrameSchedule {
     frame_rate_num: u32,
     frame_rate_den: u32,
+    start_time: Tick,
     frame_count: u64,
 }
 
@@ -43,10 +44,25 @@ impl TimelineFrameSchedule {
             .map(|item| item.end())
             .max()
             .unwrap_or(Tick::ZERO);
-        let numerator = end.as_ticks() as i128 * frame_rate_num as i128;
+        Self::for_range(Tick::ZERO, end, frame_rate_num, frame_rate_den)
+    }
+
+    /// Build a schedule for a bounded timeline range. Frame timestamps
+    /// remain absolute project times, while the frame index starts at zero.
+    pub fn for_range(
+        start_time: Tick,
+        end_time: Tick,
+        frame_rate_num: u32,
+        frame_rate_den: u32,
+    ) -> Option<Self> {
+        if frame_rate_num == 0 || frame_rate_den == 0 || end_time < start_time {
+            return None;
+        }
+        let duration = end_time - start_time;
+        let numerator = duration.as_ticks() as i128 * frame_rate_num as i128;
         let denominator = TICKS_PER_SECOND as i128 * frame_rate_den as i128;
         let frame_count = ((numerator + denominator / 2) / denominator).max(0) as u64;
-        Some(Self { frame_rate_num, frame_rate_den, frame_count })
+        Some(Self { frame_rate_num, frame_rate_den, start_time, frame_count })
     }
 
     pub fn frame_count(&self) -> u64 {
@@ -59,7 +75,7 @@ impl TimelineFrameSchedule {
         }
         let numerator = index as i128 * TICKS_PER_SECOND as i128 * self.frame_rate_den as i128;
         let time = (numerator + self.frame_rate_num as i128 / 2) / self.frame_rate_num as i128;
-        Some(TimelineFrame { index, time: Tick::from_ticks(time as i64) })
+        Some(TimelineFrame { index, time: self.start_time + Tick::from_ticks(time as i64) })
     }
 
     pub fn layers_at(&self, project: &Project, time: Tick) -> Vec<TimelineLayer> {
@@ -119,6 +135,22 @@ mod tests {
         let expected = ((29_999i128 * TICKS_PER_SECOND as i128 * 1_001 + 15_000) / 30_000) as i64;
         assert_eq!(frame.time.as_ticks(), expected);
         assert!(schedule.frame_time(schedule.frame_count()).is_none());
+    }
+
+    #[test]
+    fn bounded_schedule_keeps_absolute_project_timestamps() {
+        let schedule = TimelineFrameSchedule::for_range(
+            Tick::from_seconds(10.0),
+            Tick::from_seconds(12.0),
+            30,
+            1,
+        ).unwrap();
+        assert_eq!(schedule.frame_count(), 60);
+        assert_eq!(schedule.frame_time(0).unwrap().time, Tick::from_seconds(10.0));
+        assert_eq!(schedule.frame_time(30).unwrap().time, Tick::from_seconds(11.0));
+        assert!(TimelineFrameSchedule::for_range(
+            Tick::from_seconds(2.0), Tick::from_seconds(1.0), 30, 1
+        ).is_none());
     }
 
     #[test]
