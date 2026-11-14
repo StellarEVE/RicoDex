@@ -33,6 +33,7 @@ use crate::error::RenderError;
 use crate::frame::Frame;
 use crate::gpu::GpuCompositor;
 use crate::transition::{TransitionKind, TransitionParams};
+use crate::timeline::TimelineFrameSchedule;
 
 /// Stereo source audio supplied to the sequential export. Samples are
 /// interleaved left/right f32 values at the source sample rate.
@@ -426,7 +427,15 @@ pub fn render_sequential_with_audio(
     let (width, height) = (settings.width, settings.height);
     let (fps_num, fps_den) = (settings.frame_rate_num, settings.frame_rate_den);
     let total_duration = items[items.len() - 1].end() - items[0].start;
-    let total_frames = frames_in(total_duration, fps_num, fps_den);
+    let schedule = TimelineFrameSchedule::for_range(
+        items[0].start,
+        items[items.len() - 1].end(),
+        fps_num,
+        fps_den,
+    ).ok_or_else(|| RenderError::BadProject {
+        reason: "invalid output frame rate or timeline range".to_string(),
+    })?;
+    let total_frames = schedule.frame_count() as usize;
     if total_frames == 0 {
         return Err(RenderError::BadProject {
             reason: "the timeline rounds to zero output frames".to_string(),
@@ -475,24 +484,23 @@ pub fn render_sequential_with_audio(
                 reason: format!("item {} points at unknown asset {}", item.id, item.asset_id),
             })?;
         let path = PathBuf::from(&asset.path_hint);
-        let slots = frames_in(item.duration, fps_num, fps_den);
-        if slots == 0 {
-            return Err(RenderError::BadProject {
-                reason: format!("clip {} rounds to zero output frames", item.id),
-            });
-        }
         let mut decoder = VideoDecoder::open(&path)?;
         decoder.seek(item.source_in)?;
 
-        // Stream the item's frames, holding the latest decoded frame
-        // at or before each output slot's source time: the same
-        // sampling rule decode_item_frames applies, without holding
-        // the whole item in memory.
+        // Sample this clip only at timestamps from the shared project
+        // schedule. Clip boundaries therefore cannot accumulate separate
+        // per-clip frame-rounding errors.
         let mut last: Option<Frame> = None;
         let mut pending: Option<(Tick, Frame)> = None;
         let mut exhausted = false;
-        for slot in 0..slots {
-            let target = item.source_in + frame_start(slot, fps_num, fps_den);
+        for frame_index in 0..total_frames {
+            let timeline_time = schedule.frame_time(frame_index as u64)
+                .expect("frame index is bounded by the schedule")
+                .time;
+            if timeline_time < item.start || timeline_time >= item.end() {
+                continue;
+            }
+            let target = item.source_in + (timeline_time - item.start);
             loop {
                 if let Some((time, _)) = &pending {
                     if *time > target {
